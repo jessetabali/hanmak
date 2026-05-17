@@ -839,6 +839,7 @@ async function operations_console_init() {
     ]);
     const datasets = [risks, policies, logs, outbox, grants, flags].map(data => data.count ?? (data.results || data).length);
     document.querySelectorAll('#ops-stats .stat-value').forEach((el, index) => { el.textContent = datasets[index] ?? 0; });
+    if (!document.getElementById('ops-risk-list')) return;
     const riskRows = risks.results || risks;
     document.getElementById('ops-risk-list').innerHTML = _opsRows(riskRows, [
       item => `<div style="font-weight:600">${escapeHtml(item.title || 'Risk')}</div><div style="color:var(--text-muted)">${escapeHtml(item.description || '')}</div>`,
@@ -875,6 +876,7 @@ async function operations_console_init() {
       item => `weight ${item.weight}`,
     ], 'Search index has no records.');
   } catch (error) {
+    if (!document.getElementById('ops-risk-list')) return;
     showToast(`Operations console failed: ${error.message}`, 'error', 7000);
   }
 }

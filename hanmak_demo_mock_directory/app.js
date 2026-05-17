@@ -115,9 +115,12 @@ function navigate(pageId, params = {}) {
   }
   currentPage = pageId;
 
-  // Update nav active states
+  // Update nav active states and ARIA current page
   document.querySelectorAll('.nav-item').forEach(el => {
-    el.classList.toggle('active', el.dataset.page === pageId);
+    const pages = (el.dataset.page || '').split(' ');
+    const isActive = pages.includes(pageId);
+    el.classList.toggle('active', isActive);
+    el.setAttribute('aria-current', isActive ? 'page' : 'false');
   });
 
   // Update breadcrumb
@@ -139,7 +142,9 @@ function navigate(pageId, params = {}) {
     'profile': 'Profile Settings', 'setup': 'Account Setup', 'login': 'Sign In',
   };
   const crumb = document.getElementById('breadcrumb-current');
-  if (crumb) crumb.textContent = breadcrumbNames[pageId] || pageId;
+  const pageName = breadcrumbNames[pageId] || pageId;
+  if (crumb) crumb.textContent = pageName;
+  document.title = pageName ? `${pageName} — HanMak` : 'HanMak';
 
   // Scroll to top
   const content = document.getElementById('page-content');
@@ -189,13 +194,38 @@ function showToast(message, type = 'info', duration = 3500) {
 }
 
 // ---- Modal Helpers ----
+const FOCUSABLE_SELECTORS = 'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+function trapFocus(e, containerId) {
+  if (e.key !== 'Tab') return;
+  const container = document.getElementById(containerId);
+  if (!container) return;
+  const focusable = Array.from(container.querySelectorAll(FOCUSABLE_SELECTORS));
+  if (!focusable.length) return;
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  if (e.shiftKey) {
+    if (document.activeElement === first) { e.preventDefault(); last.focus(); }
+  } else {
+    if (document.activeElement === last) { e.preventDefault(); first.focus(); }
+  }
+}
+
 function openModal(html) {
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay';
   overlay.id = 'active-modal';
+  overlay.setAttribute('role', 'dialog');
+  overlay.setAttribute('aria-modal', 'true');
   overlay.innerHTML = html;
   document.body.appendChild(overlay);
   overlay.addEventListener('click', e => { if (e.target === overlay) closeModal(); });
+  overlay.addEventListener('keydown', e => trapFocus(e, 'active-modal'));
+  // Auto-focus first focusable element (skip the overlay backdrop itself)
+  requestAnimationFrame(() => {
+    const first = overlay.querySelector(FOCUSABLE_SELECTORS);
+    if (first) first.focus();
+  });
 }
 
 function closeModal() {
@@ -214,8 +244,15 @@ function openDrawer(html) {
   const drawer = document.createElement('div');
   drawer.className = 'drawer';
   drawer.id = 'active-drawer';
+  drawer.setAttribute('role', 'dialog');
+  drawer.setAttribute('aria-modal', 'true');
   drawer.innerHTML = html;
   document.body.appendChild(drawer);
+  drawer.addEventListener('keydown', e => trapFocus(e, 'active-drawer'));
+  requestAnimationFrame(() => {
+    const first = drawer.querySelector(FOCUSABLE_SELECTORS);
+    if (first) first.focus();
+  });
 }
 
 function openDrawerLg(html) {
@@ -229,8 +266,15 @@ function openDrawerLg(html) {
   const drawer = document.createElement('div');
   drawer.className = 'drawer drawer-lg';
   drawer.id = 'active-drawer';
+  drawer.setAttribute('role', 'dialog');
+  drawer.setAttribute('aria-modal', 'true');
   drawer.innerHTML = html;
   document.body.appendChild(drawer);
+  drawer.addEventListener('keydown', e => trapFocus(e, 'active-drawer'));
+  requestAnimationFrame(() => {
+    const first = drawer.querySelector(FOCUSABLE_SELECTORS);
+    if (first) first.focus();
+  });
 }
 
 function closeDrawer() {
@@ -278,6 +322,7 @@ const ICONS = {
   'grid': '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>',
   'save': '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>',
   'check-circle': '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>',
+  'help-circle': '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>',
 };
 
 function icon(name, size = 14) {
@@ -286,7 +331,12 @@ function icon(name, size = 14) {
 
 // ---- Sidebar Toggle ----
 function toggleSidebar() {
-  document.getElementById('sidebar').classList.toggle('collapsed');
+  const sidebar = document.getElementById('sidebar');
+  if (window.matchMedia('(max-width: 768px)').matches) {
+    sidebar.classList.toggle('mobile-open');
+  } else {
+    sidebar.classList.toggle('collapsed');
+  }
 }
 
 // ---- Org Switcher Modal ----
@@ -369,6 +419,9 @@ async function hydrateShellChrome() {
       updateNavBadge('nav-inbox-count', inboxCount);
       updateNavBadge('nav-approval-count', approvalCount);
       updateNavBadge('nav-task-count', taskCount);
+      // Show notification dot on topbar bell when there are unread items
+      const notifDot = document.getElementById('topbar-notif-dot');
+      if (notifDot) notifDot.style.display = inboxCount > 0 ? '' : 'none';
     }
   } catch (error) {
     console.warn('Shell chrome unavailable', error.message);
@@ -521,3 +574,147 @@ function switchSettingsSection(sectionId, container) {
     el.classList.toggle('active', el.dataset.section === sectionId);
   });
 }
+
+// ---- Production Utilities ----
+
+function debounce(fn, ms = 300) {
+  let timer;
+  return (...args) => {
+    clearTimeout(timer);
+    timer = setTimeout(() => fn(...args), ms);
+  };
+}
+
+function setButtonLoading(btn, isLoading, loadingText = 'Saving…') {
+  if (!btn) return;
+  if (isLoading) {
+    btn.dataset.originalHtml = btn.innerHTML;
+    btn.innerHTML = `<span class="btn-spinner" aria-hidden="true"></span>${escapeHtml(loadingText)}`;
+    btn.disabled = true;
+    btn.setAttribute('aria-busy', 'true');
+  } else {
+    if (btn.dataset.originalHtml !== undefined) btn.innerHTML = btn.dataset.originalHtml;
+    btn.disabled = false;
+    btn.removeAttribute('aria-busy');
+  }
+}
+
+function renderSkeleton(rows = 5, cols = 4) {
+  const cells = Array.from({length: cols}, () => '<td><div class="skeleton-line"></div></td>').join('');
+  return Array.from({length: rows}, () => `<tr>${cells}</tr>`).join('');
+}
+
+function renderCardSkeleton(count = 3) {
+  return Array.from({length: count}, () =>
+    `<div class="skeleton-card"><div class="skeleton-line skeleton-line-title"></div><div class="skeleton-line"></div><div class="skeleton-line skeleton-line-short"></div></div>`
+  ).join('');
+}
+
+function renderStatSkeleton(count = 4) {
+  return `<div class="stats-grid">${Array.from({length: count}, () =>
+    `<div class="stat-card"><div class="skeleton-line skeleton-line-short" style="margin-bottom:12px"></div><div class="skeleton-line skeleton-line-title" style="width:60%"></div></div>`
+  ).join('')}</div>`;
+}
+
+// ---- Offline Banner ----
+function updateOfflineBanner() {
+  const existing = document.getElementById('offline-banner');
+  if (!navigator.onLine) {
+    if (!existing) {
+      const banner = document.createElement('div');
+      banner.id = 'offline-banner';
+      banner.className = 'offline-banner';
+      banner.setAttribute('role', 'alert');
+      banner.setAttribute('aria-live', 'assertive');
+      banner.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="1" y1="1" x2="23" y2="23"/><path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55M5 12.55a10.94 10.94 0 0 1 5.17-2.39M10.71 5.05A16 16 0 0 1 22.56 9M1.42 9a15.91 15.91 0 0 1 4.7-2.88M8.53 16.11a6 6 0 0 1 6.95 0M12 20h.01"/></svg> No internet connection — changes may not be saved`;
+      document.body.insertAdjacentElement('afterbegin', banner);
+    }
+  } else {
+    existing?.remove();
+  }
+}
+
+window.addEventListener('online', updateOfflineBanner);
+window.addEventListener('offline', updateOfflineBanner);
+
+// ---- Topbar Auth Button ----
+function topbarAuthAction() {
+  if (localStorage.getItem('HANMAK_ACCESS_TOKEN')) {
+    navigate('profile');
+  } else {
+    navigate('login');
+  }
+}
+
+function updateTopbarAuthButton() {
+  const btn = document.getElementById('topbar-signin-btn');
+  if (!btn) return;
+  if (localStorage.getItem('HANMAK_ACCESS_TOKEN')) {
+    btn.title = 'My Profile';
+    btn.setAttribute('aria-label', 'My Profile');
+    btn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>`;
+  } else {
+    btn.title = 'Sign in';
+    btn.setAttribute('aria-label', 'Sign in');
+    btn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>`;
+  }
+}
+
+// ---- Help Modal ----
+function openHelpModal() {
+  openModal(`
+    <div class="modal modal-sm">
+      <div class="modal-header">
+        <div><div class="modal-title">${icon('help-circle')} Keyboard Shortcuts</div><div class="modal-subtitle">Navigate HanMak without a mouse</div></div>
+        <button class="modal-close" onclick="closeModal()" aria-label="Close">${icon('x', 16)}</button>
+      </div>
+      <div class="modal-body" style="padding:20px 24px">
+        <table style="width:100%;border-collapse:collapse;font-size:13px">
+          <tbody>
+            ${[
+              ['/','Focus global search'],
+              ['Escape','Close modal or drawer'],
+              ['Shift + ?','Open this help panel'],
+            ].map(([key, desc]) => `
+              <tr style="border-bottom:1px solid var(--border-light)">
+                <td style="padding:10px 0;width:110px"><kbd style="font-size:11px">${escapeHtml(key)}</kbd></td>
+                <td style="padding:10px 0;color:var(--text-secondary)">${escapeHtml(desc)}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+        <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--border-light)">
+          <div style="font-size:12px;font-weight:700;color:var(--text-secondary);margin-bottom:10px;text-transform:uppercase;letter-spacing:0.05em">Quick Links</div>
+          <div style="display:flex;flex-wrap:wrap;gap:8px">
+            ${[
+              ['api-docs','API Docs'],
+              ['system-health','System Health'],
+              ['tasks','Background Tasks'],
+              ['release-control','Release Control'],
+            ].map(([page, label]) => `<button class="btn btn-secondary btn-sm" onclick="closeModal();navigate('${page}')">${escapeHtml(label)}</button>`).join('')}
+          </div>
+        </div>
+      </div>
+    </div>
+  `);
+}
+
+// ---- Global Keyboard Shortcuts ----
+document.addEventListener('keydown', e => {
+  // Escape closes open modal or drawer
+  if (e.key === 'Escape') {
+    if (document.getElementById('active-modal')) { closeModal(); return; }
+    if (document.getElementById('active-drawer')) { closeDrawer(); return; }
+  }
+  // '/' focuses the global search when focus is not in a text field
+  if (e.key === '/' && !['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)) {
+    e.preventDefault();
+    const searchInput = document.getElementById('global-search');
+    if (searchInput) searchInput.focus();
+  }
+  // Shift+? opens help modal
+  if (e.key === '?' && e.shiftKey && !['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)) {
+    e.preventDefault();
+    openHelpModal();
+  }
+});

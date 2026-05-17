@@ -102,6 +102,7 @@ async function users_init() {
       const statusValue = row.type === 'invite' ? 'pending' : row.user.is_active ? 'active' : 'suspended';
       return (!query || text.includes(query)) && (!roleFilter || role === roleFilter) && (!statusFilter || statusValue === statusFilter);
     });
+    if (!document.getElementById('admin-users-stats')) return;
     document.getElementById('admin-users-stats').innerHTML = [
       ['Total Users', state.users.length, 'var(--primary)'],
       ['Active', state.users.filter(user => user.is_active).length, 'var(--success)'],
@@ -110,6 +111,7 @@ async function users_init() {
     ].map(([label, value, color]) => `<div class="stat-card"><div class="stat-label">${label}</div><div class="stat-value" style="color:${color}">${value}</div></div>`).join('');
     document.getElementById('admin-users-table').innerHTML = rows.map(row => row.type === 'user' ? userRow(row) : invitationRow(row.invitation)).join('') || '<tr><td colspan="9"><div class="empty-state"><div class="empty-state-title">No matching users</div></div></td></tr>';
   } catch (error) {
+    if (!document.getElementById('admin-users-stats')) return;
     showToast(`Users failed: ${error.message}`, 'error', 7000);
   }
 }
@@ -482,6 +484,7 @@ async function organizations_init() {
     const org = state.organizations.find(item => item.id === organizationId) || state.organizations[0];
     const domains = state.domains.filter(domain => domain.organization === org.id);
     const subsidiaries = state.organizations.filter(item => item.parent === org.id);
+    if (!document.getElementById('admin-organization-body')) return;
     document.getElementById('admin-organization-body').innerHTML = `<div style="display:grid;grid-template-columns:1fr 1fr;gap:1.5rem">
       <div class="flex flex-col gap-4">
         <div class="card" style="padding:1.5rem">
@@ -510,6 +513,7 @@ async function organizations_init() {
     const deletionOrg = Number(params.get('organization') || org.id);
     if (deletionToken && deletionOrg === org.id) openConfirmOrganizationDeletionModal(org.id, deletionToken);
   } catch (error) {
+    if (!document.getElementById('admin-organization-body')) return;
     showToast(`Organization failed: ${error.message}`, 'error', 7000);
   }
 }
@@ -642,13 +646,19 @@ registerPage('teams', () => `
 `);
 
 async function teams_init() {
-  const state = await adminLoadAll();
-  const membershipsByTeam = new Map();
-  state.memberships.forEach(membership => {
-    if (!membership.team) return;
-    membershipsByTeam.set(membership.team, [...(membershipsByTeam.get(membership.team) || []), membership]);
-  });
-  document.getElementById('admin-team-grid').innerHTML = state.teams.map(team => teamCard(team, membershipsByTeam.get(team.id) || [])).join('') || '<div class="empty-state"><div class="empty-state-title">No teams yet</div></div>';
+  try {
+    const state = await adminLoadAll();
+    if (!document.getElementById('admin-team-grid')) return;
+    const membershipsByTeam = new Map();
+    state.memberships.forEach(membership => {
+      if (!membership.team) return;
+      membershipsByTeam.set(membership.team, [...(membershipsByTeam.get(membership.team) || []), membership]);
+    });
+    document.getElementById('admin-team-grid').innerHTML = state.teams.map(team => teamCard(team, membershipsByTeam.get(team.id) || [])).join('') || '<div class="empty-state"><div class="empty-state-title">No teams yet</div></div>';
+  } catch (error) {
+    if (!document.getElementById('admin-team-grid')) return;
+    showToast(`Teams failed: ${error.message}`, 'error', 7000);
+  }
 }
 
 function teamCard(team, members) {
@@ -752,10 +762,12 @@ async function roles_init() {
   try {
     const data = await hanmakApi('/roles/');
     const allRoles = data.results || data || [];
+    if (!document.getElementById('admin-role-list')) return;
     document.getElementById('admin-role-list').innerHTML = allRoles.map((role, index) => `<div data-role-id="${role.id}" style="display:flex;align-items:center;gap:0.625rem;padding:0.5rem 0.625rem;border-radius:6px;cursor:pointer;background:${index === 0 ? 'var(--primary-light)' : ''};color:${index === 0 ? 'var(--primary)' : 'var(--text-secondary)'};margin-bottom:2px;font-size:0.875rem" onclick="selectRole(${role.id},this)">${icon('shield')}<span style="flex:1">${escapeHtml(role.name)}</span>${role.is_system ? '<span style="font-size:0.7rem;color:var(--text-muted)">System</span>' : `<button class="btn btn-ghost btn-sm" style="padding:2px 4px;color:var(--danger)" onclick="event.stopPropagation();deleteRoleLive(${role.id},'${escapeHtml(role.name)}')" title="Delete role">${icon('trash')}</button>`}</div>`).join('') + `<button class="btn btn-ghost btn-sm" style="width:100%;margin-top:0.5rem" onclick="createRole()">${icon('plus')} New Role</button>`;
     if (allRoles[0]) renderRoleDetail(allRoles[0]);
     else document.getElementById('admin-role-detail').innerHTML = '<div class="empty-state"><div class="empty-state-title">No roles yet</div></div>';
   } catch (error) {
+    if (!document.getElementById('admin-role-list')) return;
     showToast(`Roles failed: ${error.message}`, 'error', 7000);
   }
 }

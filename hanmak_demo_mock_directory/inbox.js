@@ -141,7 +141,9 @@ async function inbox_init() {
     });
     renderInboxLive();
   } catch (error) {
-    document.getElementById('inbox-list').innerHTML = `<div style="padding:2rem;text-align:center;color:var(--danger)">Inbox failed: ${escapeHtml(error.message)}</div>`;
+    const inboxList = document.getElementById('inbox-list');
+    if (!inboxList) return;
+    inboxList.innerHTML = `<div style="padding:2rem;text-align:center;color:var(--danger)">Inbox failed: ${escapeHtml(error.message)}</div>`;
   }
 }
 

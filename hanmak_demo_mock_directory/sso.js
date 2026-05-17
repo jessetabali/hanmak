@@ -4,6 +4,9 @@ registerPage('sso', () => `
   <button class="btn btn-primary" onclick="saveActiveSSOConnection()">${icon('save')} Save</button>
 </div>
 
+<div class="settings-layout">
+${settingsNav('sso')}
+<div>
 <div class="card" style="margin-bottom:1.5rem;padding:0">
   <div class="tabs" style="padding:0 1.25rem;border-bottom:1px solid var(--border)">
     <button class="tab active" onclick="switchSSOTab('saml',this)">SAML 2.0</button>
@@ -165,6 +168,8 @@ registerPage('sso', () => `
       <div class="empty-state"><div class="empty-state-title">Loading providers…</div></div>
     </div>
   </div>
+</div>
+</div>
 </div>
 `);
 

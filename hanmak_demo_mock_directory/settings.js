@@ -226,39 +226,39 @@ registerPage('settings-email', () => `
   </div>
 </div>
 <div class="settings-layout">
-  ${settingsNav('email')}
-  <div class="flex flex-col gap-4">
-    <div class="card" style="padding:1.5rem">
-      <h3 style="font-size:1rem;font-weight:700;margin-bottom:1rem">Email Provider</h3>
-      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:0.75rem;margin-bottom:1.25rem">
-        ${[['sendgrid','SendGrid','Active'],['postmark','Postmark',''],['ses','AWS SES',''],['smtp','Custom SMTP','']].map(([val,name,active])=>`
-          <div data-provider="${val}" style="padding:0.875rem;border:2px solid ${active?'var(--primary)':'var(--border)'};border-radius:8px;text-align:center;cursor:pointer;background:${active?'var(--primary-light,#dbeafe)':''}"
-            onclick="selectEmailProvider('${val}',this)">
-            <div style="font-weight:600;font-size:0.875rem">${name}</div>
-            ${active?'<span class="badge badge-primary" style="font-size:0.7rem;margin-top:4px">Active</span>':''}
-          </div>`).join('')}
-      </div>
-      <input type="hidden" id="em-provider" value="sendgrid">
-      <div class="form-group"><label class="form-label">API Key / SMTP Password</label>
-        <input class="form-input" type="password" value="SG.xxxxxxxxxxxxxxxxxxx" style="font-family:var(--font-mono)">
-      </div>
-      <div class="form-group"><label class="form-label">From Name</label><input id="em-from-name" class="form-input" value="Acme Corp Documents"></div>
-      <div class="form-group"><label class="form-label">From Email</label><input id="em-from-email" class="form-input" value="sign@acmecorp.com"></div>
-      <div class="form-group"><label class="form-label">Reply-To</label><input id="em-reply-to" class="form-input" value="legal@acmecorp.com"></div>
+${settingsNav('email')}
+<div class="flex flex-col gap-4">
+  <div class="card" style="padding:1.5rem">
+    <h3 style="font-size:1rem;font-weight:700;margin-bottom:1rem">Email Provider</h3>
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:0.75rem;margin-bottom:1.25rem">
+      ${[['sendgrid','SendGrid','Active'],['postmark','Postmark',''],['ses','AWS SES',''],['smtp','Custom SMTP','']].map(([val,name,provider_active])=>`
+        <div data-provider="${val}" style="padding:0.875rem;border:2px solid ${provider_active?'var(--primary)':'var(--border)'};border-radius:8px;text-align:center;cursor:pointer;background:${provider_active?'var(--primary-light,#dbeafe)':''}"
+          onclick="selectEmailProvider('${val}',this)">
+          <div style="font-weight:600;font-size:0.875rem">${name}</div>
+          ${provider_active?'<span class="badge badge-primary" style="font-size:0.7rem;margin-top:4px">Active</span>':''}
+        </div>`).join('')}
     </div>
-    <div class="card" style="padding:1.5rem">
-      <h3 style="font-size:1rem;font-weight:700;margin-bottom:1rem">Email Templates</h3>
-      <div id="email-template-list" class="flex flex-col gap-2">
-        ${[['Invitation to Sign','Active'],['Reminder — Pending Signature','Active'],['Signature Completed','Active'],['Approval Requested','Active'],['Approval Granted/Declined','Active'],['Envelope Voided','Active'],['Envelope Expired','Active'],['Welcome / Onboarding','Active']].map(([name,status])=>`
-          <div style="display:flex;align-items:center;gap:0.75rem;padding:0.625rem;border:1px solid var(--border);border-radius:7px">
-            <div style="flex:1"><div style="font-weight:500;font-size:0.875rem">${name}</div></div>
-            <span class="badge badge-success">${status}</span>
-            <button class="btn btn-ghost btn-sm" onclick="editEmailTemplate('${name}')">${icon('edit')}</button>
-            <button class="btn btn-ghost btn-sm" onclick="previewEmailTemplateByName('${name}')">${icon('eye')}</button>
-          </div>`).join('')}
-      </div>
+    <input type="hidden" id="em-provider" value="sendgrid">
+    <div class="form-group"><label class="form-label">API Key / SMTP Password</label>
+      <input class="form-input" type="password" value="SG.xxxxxxxxxxxxxxxxxxx" style="font-family:var(--font-mono)">
+    </div>
+    <div class="form-group"><label class="form-label">From Name</label><input id="em-from-name" class="form-input" value="Acme Corp Documents"></div>
+    <div class="form-group"><label class="form-label">From Email</label><input id="em-from-email" class="form-input" value="sign@acmecorp.com"></div>
+    <div class="form-group"><label class="form-label">Reply-To</label><input id="em-reply-to" class="form-input" value="legal@acmecorp.com"></div>
+  </div>
+  <div class="card" style="padding:1.5rem">
+    <h3 style="font-size:1rem;font-weight:700;margin-bottom:1rem">Email Templates</h3>
+    <div id="email-template-list" class="flex flex-col gap-2">
+      ${[['Invitation to Sign','Active'],['Reminder — Pending Signature','Active'],['Signature Completed','Active'],['Approval Requested','Active'],['Approval Granted/Declined','Active'],['Envelope Voided','Active'],['Envelope Expired','Active'],['Welcome / Onboarding','Active']].map(([name,status])=>`
+        <div style="display:flex;align-items:center;gap:0.75rem;padding:0.625rem;border:1px solid var(--border);border-radius:7px">
+          <div style="flex:1"><div style="font-weight:500;font-size:0.875rem">${name}</div></div>
+          <span class="badge badge-success">${status}</span>
+          <button class="btn btn-ghost btn-sm" onclick="editEmailTemplate('${name}')">${icon('edit')}</button>
+          <button class="btn btn-ghost btn-sm" onclick="previewEmailTemplateByName('${name}')">${icon('eye')}</button>
+        </div>`).join('')}
     </div>
   </div>
+</div>
 </div>
 `);
 
@@ -789,7 +789,7 @@ function settingsNav(active) {
     ['settings-notifications','Notifications','bell'],
     ['sso','SSO / Identity','lock'],
   ];
-  const activeId = String(active || '').startsWith('settings-') ? active : `settings-${active}`;
+  const activeId = items.some(([id]) => id === active) ? active : `settings-${active}`;
   return `<nav class="card" style="padding:1rem;height:fit-content;min-width:200px">
     ${items.map(([id,label,ic])=>`
       <div style="padding:0.5rem 0.625rem;border-radius:6px;cursor:pointer;font-size:0.875rem;display:flex;align-items:center;gap:0.5rem;margin-bottom:2px;background:${id===activeId?'var(--primary-light)':''};color:${id===activeId?'var(--primary)':'var(--text-secondary)'}"

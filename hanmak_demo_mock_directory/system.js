@@ -33,7 +33,9 @@ async function tasks_init() {
     const queues = taskDashboardQueues(summary);
     const tasks = taskDashboardRows(summary);
     const workerCount = healthSummary?.metrics?.celery_worker_count;
-    document.getElementById('live-task-body').innerHTML = `
+    const taskBody = document.getElementById('live-task-body');
+    if (!taskBody) return;
+    taskBody.innerHTML = `
       <div class="stats-grid" style="--cols:5;margin-bottom:1.5rem">
         ${taskStat('Active Workers', workerCount ?? 0, workerCount ? 'var(--success)' : 'var(--warning)')}
         ${taskStat('Queued', summary.queued ?? 0, 'var(--text-primary)')}
@@ -85,7 +87,8 @@ async function tasks_init() {
         </div>
       </div>`;
   } catch (error) {
-    showToast(`Tasks failed: ${error.message}`, 'error', 7000);
+    if (!document.getElementById('live-task-body')) return;
+    document.getElementById('live-task-body').innerHTML = `<div class="alert alert-danger">${icon('alert-circle')} Tasks failed: ${escapeHtml(error.message)}</div>`;
   }
 }
 
@@ -299,7 +302,10 @@ async function system_health_init() {
     ]);
     renderHealthSummary(data, incidentsData.results || incidentsData || [], readiness, runbook);
   } catch (error) {
-    showToast(`Health failed: ${error.message}`, 'error', 7000);
+    // Ignore stale-navigation errors (user navigated away before the response arrived)
+    if (!document.getElementById('live-health-body')) return;
+    const healthBody = document.getElementById('live-health-body');
+    healthBody.innerHTML = `<div class="alert alert-danger">${icon('alert-circle')} Health check failed: ${escapeHtml(error.message)}</div>`;
   }
 }
 
@@ -341,7 +347,9 @@ function renderHealthSummary(data, incidents = [], readiness = null, runbook = n
   const storageCheck = checks.get('storage');
   const workerCheck = checks.get('worker') || checks.get('task_queue');
   const emailCheck = checks.get('email');
-  document.getElementById('live-health-body').innerHTML = `
+  const healthBody = document.getElementById('live-health-body');
+  if (!healthBody) return;
+  healthBody.innerHTML = `
     <div style="background:${healthy ? '#dcfce7' : '#fee2e2'};border:1px solid ${healthy ? 'var(--success)' : 'var(--danger)'};border-radius:10px;padding:1rem 1.5rem;margin-bottom:1.5rem;display:flex;align-items:center;gap:1rem">
       <div style="width:12px;height:12px;border-radius:50%;background:${healthy ? 'var(--success)' : 'var(--danger)'};flex-shrink:0"></div>
       <div><div style="font-weight:700;color:${healthy ? 'var(--success)' : 'var(--danger)'}">${healthy ? 'All Systems Operational' : 'System Degraded'}</div><div style="font-size:0.8125rem;color:var(--text-secondary)">Last checked: ${apiDate(data.checked_at)} · Uptime: 99.97% this month</div></div>

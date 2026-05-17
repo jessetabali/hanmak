@@ -37,7 +37,7 @@
     </div>
 
     <!-- Navigation -->
-    <nav class="sidebar-nav">
+    <nav class="sidebar-nav" role="navigation" aria-label="Main navigation">
 
       <!-- Core -->
       <div class="nav-section">
@@ -165,33 +165,9 @@
       <!-- Settings -->
       <div class="nav-section">
         <div class="nav-section-label">Settings</div>
-        <button class="nav-item" onclick="navigate('settings-general')" data-page="settings-general" data-label="General">
+        <button class="nav-item" onclick="navigate('settings-general')" data-page="settings-general settings-branding settings-email settings-storage settings-security settings-notifications sso" data-label="Settings">
           <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93A10 10 0 1 1 4.93 19.07 10 10 0 0 1 19.07 4.93z"/></svg>
-          General
-        </button>
-        <button class="nav-item" onclick="navigate('settings-branding')" data-page="settings-branding" data-label="Branding">
-          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="13.5" cy="6.5" r=".5"/><circle cx="17.5" cy="10.5" r=".5"/><circle cx="8.5" cy="7.5" r=".5"/><circle cx="6.5" cy="12.5" r=".5"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z"/></svg>
-          Branding
-        </button>
-        <button class="nav-item" onclick="navigate('settings-email')" data-page="settings-email" data-label="Email / SMTP">
-          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
-          Email / SMTP
-        </button>
-        <button class="nav-item" onclick="navigate('settings-storage')" data-page="settings-storage" data-label="Storage">
-          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
-          Storage
-        </button>
-        <button class="nav-item" onclick="navigate('settings-security')" data-page="settings-security" data-label="Security">
-          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-          Security
-        </button>
-        <button class="nav-item" onclick="navigate('sso')" data-page="sso" data-label="SSO / SCIM / LDAP">
-          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/></svg>
-          SSO / SCIM / LDAP
-        </button>
-        <button class="nav-item" onclick="navigate('settings-notifications')" data-page="settings-notifications" data-label="Notifications">
-          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
-          Notifications
+          Settings
         </button>
       </div>
 
@@ -267,27 +243,27 @@
       </div>
 
       <div class="topbar-actions">
-        <button class="topbar-icon-btn" title="Sign in" onclick="navigate('login')">
+        <button class="topbar-icon-btn" id="topbar-signin-btn" title="Sign in" aria-label="Sign in" onclick="topbarAuthAction()">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
         </button>
-        <button class="topbar-icon-btn" title="Sign out" onclick="logoutLive()">
+        <button class="topbar-icon-btn" title="Sign out" aria-label="Sign out" onclick="logoutLive()">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
         </button>
-        <button class="topbar-icon-btn" title="Help">
+        <button class="topbar-icon-btn" title="Keyboard shortcuts &amp; help (Shift+?)" aria-label="Help" onclick="openHelpModal()">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
         </button>
-        <button class="topbar-icon-btn" title="Notifications">
+        <button class="topbar-icon-btn" title="Inbox / Notifications" aria-label="Inbox and notifications" onclick="navigate('inbox')">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
-          <span class="notif-dot"></span>
+          <span class="notif-dot" id="topbar-notif-dot"></span>
         </button>
-        <button class="topbar-icon-btn" title="Toggle sidebar" onclick="toggleSidebar()">
+        <button class="topbar-icon-btn" title="Toggle sidebar" aria-label="Toggle sidebar" onclick="toggleSidebar()">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
         </button>
       </div>
     </div>
 
     <!-- PAGE CONTENT (dynamically rendered) -->
-    <div class="page-content" id="page-content">
+    <div class="page-content" id="page-content" role="main" aria-label="Page content">
       <!-- Rendered by JS -->
     </div>
 
@@ -295,7 +271,7 @@
 </div>
 
 <!-- TOAST CONTAINER -->
-<div class="toast-container" id="toast-container"></div>
+<div class="toast-container" id="toast-container" role="region" aria-live="polite" aria-atomic="false" aria-label="Notifications"></div>
 
 <!-- Core app scripts -->
 <script src="beta-config.js"></script>
@@ -329,6 +305,8 @@
 <script>
   // Initialize on load
   document.addEventListener('DOMContentLoaded', () => {
+    if (typeof updateTopbarAuthButton === 'function') updateTopbarAuthButton();
+    if (typeof updateOfflineBanner === 'function') updateOfflineBanner();
     if (typeof hydrateOrganizationChrome === 'function') hydrateOrganizationChrome();
     if (typeof hydrateShellChrome === 'function') hydrateShellChrome();
     const params = new URLSearchParams(location.search);
