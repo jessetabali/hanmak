@@ -1,0 +1,189 @@
+# Plan Alignment Notes
+
+This backend has been expanded using `Documentation/Initial Development Plan/basic plan`.
+
+## Covered Now
+
+- Organization, team, membership foundation.
+- Admin organization management: editable organization profile, subsidiaries, verified domain records, organization export, ownership transfer, hardened deletion request/confirmation flow, live teams, memberships, invitations, direct managed user creation, users, and assignable custom role permissions.
+- First-time setup and invitation acceptance: public setup-token inspection/completion, invitation-token inspection/acceptance, expiry handling, resend/revoke lifecycle actions, setup-token cancellation, username collision validation, and automatic setup/invite email delivery.
+- Dedicated mock/live sign-in page, sign-out control, token refresh helper, and setup/invite completion handoff into authenticated app state.
+- Public forgot-password request endpoint and mock login reset dialog queue reset/setup emails without account enumeration.
+- Branding assets: organization logo upload with image type/size validation, branding settings endpoint, and email/UI usage of uploaded logo and theme values.
+- Envelope CRUD, recipients, send/void actions.
+- Document storage metadata, stored files, document pages.
+- Template versions, template parties, and form fields.
+- Signing sessions, consent records, signatures, field values.
+- Approval requests with approve/reject/request-changes actions.
+- Audit events with severity and optional document link.
+- Evidence bundles.
+- Webhook endpoints, event outbox, deliveries, replay stub.
+- Task definitions, task runs, task events, restart/cancel actions.
+- Background task operations: queue summary, recent task view, failed-task purge, restart/cancel actions, and task event log visibility.
+- API keys and request logs.
+- Versioned API route prefix under `/api/v1/`.
+- Workflow definitions/runs/events.
+- Identity/SSO/SCIM/LDAP/JIT/Social Login configuration records.
+- Legal hold, retention policies, and compliance exports.
+- Billing plans, subscriptions, usage records, invoices, payment methods, checkout/portal handoff sessions, and license keys.
+- App settings, release-control feature flags, health checks.
+- Dedicated General, Email, Storage, and Security settings tables with organization-scoped API endpoints and upsert behavior.
+- System health operations: live/ready checks, run-check action, persisted health status, and summary metrics for task/email health.
+- Public status and alerts: public status endpoint, publish-status action, incident records, alert threshold settings, stored alert subscriptions, disk/process/task/email observability metrics, and email reliability summary counts.
+- Production-observability foundations: health summaries now include normalized CPU load, process CPU time, MinIO health probes, SQLite/Postgres database metadata, Redis, Celery inspect, disk, task, and email counters.
+- Risk findings and policy rules.
+- Unified inbox aggregate endpoint.
+- Basic analytics endpoints.
+- JWT auth and OpenAPI docs.
+- Tenant-scoped API querysets and cross-organization write blocking for organization-owned records.
+- Profile/security foundations: user profiles, MFA devices, notification preferences, sessions, and invitations.
+- Profile activity timeline exposes recent user audit events, sessions, recovery requests, and MFA/passkey devices.
+- Admin impersonation is modeled as an audited request/approve/deny/start/end workflow with second-admin approval and temporary target-user JWT issuance.
+- OAuth app and OAuth grant records.
+- Data residency regions and organization residency policies.
+- Tenant-scoped global search endpoint.
+- Evidence bundle generation action with deterministic hash metadata.
+- Signed PDF artifact generation with SHA-256 tracking.
+- Email invitation/reminder queue records with Celery delivery hooks.
+- Email retry/bounce metadata, manual retry/mark-bounced actions, provider bounce webhook, reminder schedule records with due-run task hook, and backend email reliability summary endpoint.
+- Branded plain-text/HTML signer emails with richer template styling and API-exposed signing URLs.
+- Public signer magic-link endpoint for opening/submitting signing sessions.
+- Public signer recipient isolation: only assigned/unassigned fields are exposed, and submission rejects fields owned by another recipient.
+- Required signing-field validation on both public signer UI and backend submit endpoint.
+- Multi-party template party assignment from envelope creation, including readiness checks for missing or duplicate party owners.
+- Recipient delegation workflow: moves outstanding fields to a delegate, revokes old links, records delegation metadata, and queues a new invite.
+- Routing-order invite progression: only the current routing group is invited, and the next group is queued after completion.
+- Document processing action that records page metadata.
+- Backend page preview generation action that stores PNG page images for signing-preview consumers.
+- Document scan records and scan action for upload security review.
+- Signed PDF output includes document/page/field placement map.
+- Optional source-PDF visual stamping path using `pypdf` + `reportlab` when installed.
+- First-pass RBAC write guard for envelope/document resources.
+- Docker Compose development scaffold for Nginx, Postgres, Redis, Celery, Mailhog, and MinIO.
+- Mock frontend live wiring for template save/use, signer-link testing, custom SMTP settings, public PNG/canvas preview overlay, delegation, and routing/email visibility.
+- Backend-native template setup endpoint and create-from-template envelope service for document attachment plus party-owned field copying.
+- Account recovery request records, recovery code rotation, and WebAuthn passkey registration/authentication endpoints using real assertion/attestation verification libraries.
+- Mock Profile/Security passkey UI for browser registration, authentication testing, and registered-device listing.
+- Fine-grained object-permission grant records plus shared queryset/object permission enforcement for non-admin object access. Object-permission grant creation is now admin/manager guarded.
+- Custom role permission mapping now supports assignable custom roles on memberships/invitations, backend create/edit/delete permission actions, and mock Admin assignment controls.
+- OIDC authorize/callback state handling with token exchange and ID-token validation, SAML ACS signature validation, and SCIM provisioning endpoint foundations.
+- Mock SSO UI for OIDC/SAML configuration, save/test flows, validation-error display, SAML security-toggle persistence, and provider preset form-fill.
+- Persisted tenant-scoped search index with rebuild endpoint and indexed global search path.
+- Celery beat schedule configuration for failed email retries and due reminder automation.
+- Mock template/envelope creation flow now uses backend-native setup/create-from-template endpoints.
+- Form Builder and public signing now share a normalized 1040px-wide page-coordinate contract: builder drops no longer double-count scroll, fields are clamped to their page bounds, saved schemas include page size and percentage metadata, the backend normalizes fields before copying them into envelopes, and the public signer renders date/select/signature/attachment controls from those saved field definitions.
+- Filled signing values now carry forward into envelope, later signer, and approval review: completed/review overlays render as readable printed values without field outlines, typed signatures preserve signer-selected style/color/size metadata, drawn/uploaded signatures render as images, approval inbox includes a Review action, field serializers expose persisted `page_width/page_height` plus the `canonical-1040` page basis, and generated signed PDFs map field geometry from that saved basis onto the same stored page-preview image dimensions used by the browser overlay before falling back to source-PDF stamping.
+- Mock Admin pages now use backend-native APIs for direct user creation, user lifecycle actions, organization profile/domains/subsidiaries/export/ownership/deletion requests, deletion confirmation, team membership/custom-role assignment, invitations/resend, setup-token cancellation, and role permission updates.
+- Mock Background Tasks and System Health pages now use backend-native task, health, alert subscription, and email reliability endpoints instead of static sample metrics.
+- Mock dashboard and shell chrome now hydrate profile, organization, task badges, risk radar, workflow snapshot, approval analytics, and approver load from backend APIs instead of visible static sample values.
+- 2026-05-15 verification confirmed the active frontend implementation is the `live-wiring.js` Test Lab page, which uses `/task-runs/` for run list, detail, CSV export, and failed-run restart; SSO SAML presets/toggles and dashboard/sidebar/approval live-data hydration are present and syntactically valid.
+- JWT auth now embeds an account auth-version and session revocation/password-reset flows invalidate older access and refresh tokens.
+- Login lockout counters and lockout windows protect accounts after repeated failed password attempts.
+- Health checks now include host memory metrics and queue alert emails when status changes for subscribed operators.
+- Health summaries now include DB runtime counters, Redis connectivity/memory/client metrics when configured, and threshold breach reporting.
+- Data residency enforcement can require organization policies before document/envelope creation, with live summary and enforcement controls in the mock UI.
+- Search index entries are updated incrementally when envelopes, templates, documents, and audit events change.
+- SCIM provisioning now creates/updates users, external identities, and tenant memberships, including deactivation handling.
+- SSO connections expose backend config validation for required OIDC/SAML provider fields and the mock UI surfaces validation errors before test flows.
+- OIDC connections can refresh discovery metadata from issuer `/.well-known/openid-configuration`.
+- SSO connections expose editable login mapping policy for subject/email/name/default role and use that policy during OIDC/SAML callback identity extraction.
+- SCIM group provisioning can create/update teams and link existing memberships by email.
+- Evidence bundles can be verified by recalculating manifest and signed-PDF hashes, with UI verify actions.
+- Evidence bundle manifests include signer-uploaded field attachments with filename, stored file path, content type, and size metadata. Generated signed PDFs append signer-uploaded attachment cover pages, and append source PDF pages when the uploaded attachment is a valid PDF.
+- Evidence bundles expose visual QA metadata for attached document pages, missing page previews, field counts, stamping capability, and artifact readiness.
+- Active legal holds block envelope/document deletion until the hold is released.
+- Public signing submission is idempotent after completion and will not duplicate completion emails on repeat submits.
+- Workflow runs have a backend advance action with event logging, plus live UI controls for advancing demo runs.
+- Tenant email templates can override invite/reminder/completion subjects, text, and HTML using simple placeholders.
+- Mock Email settings includes email-template create/edit/list/preview controls backed by `/api/v1/email-templates/`.
+- Login responses expose confirmed MFA/passkey method hints, and unauthenticated passkey-login challenge creation is available by username/email.
+- Public passkey assertion completion can now issue auth-versioned JWT access/refresh tokens after WebAuthn verification.
+- Mock login now runs the browser `navigator.credentials.get()` passkey ceremony and exchanges the assertion for JWT tokens.
+- Bounce webhooks can require HMAC-SHA256 signatures through `HANMAK_EMAIL_BOUNCE_WEBHOOK_SECRET`.
+- Nginx dev proxy now includes baseline security/cache headers.
+- Task summaries include retry-due and stale-running counts, and health storage metadata reports local media/object-storage configuration.
+- Health checks now attempt Celery inspect worker heartbeat metrics and gracefully fall back when workers are unavailable.
+- Mock System Health now displays live Redis, DB, and Celery worker metrics when the backend reports them.
+- Mock Background Tasks now uses health-summary Celery inspect data for worker names/counts when available and shows an explicit inspect-unavailable fallback otherwise.
+- Health-summary Celery inspect now includes per-worker active/reserved/scheduled counts, pool size, PID, RSS, and CPU-time fields when Celery exposes them.
+- Mock System Health now loads recent incidents from `/incidents/` and links to the public status JSON endpoint.
+- Billing API routing now exposes invoices and payment methods, and the mock Billing page renders invoice history/payment method from live backend data.
+- Billing checkout and customer-portal actions create auditable payment portal session records and return provider-configurable handoff URLs; mock Billing opens those handoff sessions.
+- Payment provider webhook ingestion now records provider events, validates configured Stripe/Adyen/HanMak signatures, de-duplicates processed events, and reconciles checkout sessions, subscriptions, and invoice records where provider metadata identifies the organization/session.
+- Payment webhook event history is available through `/api/v1/payment-webhook-events/` for billing audit/debug visibility.
+- Optional Sentry/OpenTelemetry bootstrap is wired through environment variables, and System Health exposes APM runtime status plus deployment-readiness checks for TLS, cookies, CORS, database, media policy, APM, and payment webhook secrets.
+- Global search now reports ranking strategy/details and uses Postgres full-text ranking when available, with a deterministic weighted-term fallback for SQLite/local development.
+- Login lockout messages now provide user-facing recovery guidance, and the mock auth shell surfaces MFA/passkey/lockout status plus password recovery action copy.
+- Org-wide envelope defaults now persist in `GeneralSettings`, are editable from the mock General Settings page, and apply default due dates during direct/backend-native envelope creation.
+- Digest content preferences now persist in user profile preferences alongside notification rows and digest frequency.
+- Identity API routing now exposes LDAP, JIT provisioning, and Social Provider records; the mock SSO page can save/test LDAP, save JIT settings, and create/update social login provider records.
+- Bounce webhook signature handling includes generic HanMak HMAC, Mailgun signing-key validation, and SendGrid signed-header enforcement.
+- Document rendering capabilities endpoint reports the current PNG/canvas renderer plus optional PyMuPDF/Poppler availability without changing the working preview flow.
+- API key rotation endpoint: revokes old key and issues a replacement with the same scopes, returning the plaintext key once on the response.
+- Mock frontend fully wired for API Keys (list/create/rotate/revoke/scope-edit), Approvals (queue with per-status tabs and approve/reject/request-changes actions), Audit Trail (filterable live event log + evidence bundle creation), Billing (subscription banner, usage bars, plan comparison, super-admin plan allocation, payment-method override), License (key details + backend feature checklist + activation/generation/override forms), Documents (searchable grid with status filter + pagination), OAuth Apps (list/create/edit/delete/secret rotation), and Webhooks (endpoints list/edit/delete, delivery history with replay, add endpoint, queue test delivery).
+- Mock Envelopes page now uses backend query params for search/status/sort/due-date filters, supports edit/save through `PATCH /envelopes/{id}/`, row/drawer delete with legal-hold errors surfaced, bulk send/void/delete-drafts through `/envelopes/bulk-action/`, real CSV file export, and PDF download through `/envelopes/{id}/download/`.
+- Mock Templates now support backend-backed metadata edit/status changes/direct row delete/delete from details, while Builder saves document-backed versions, parties, and fields including attachment-upload fields used by envelope creation.
+- Mock Documents/File Library now supports backend-backed upload, summary metrics, search/filter/sort, rename, duplicate, prepare/open in Form Builder, process, scan, render page PNGs, download/preview links, delete, and clearer operation failure messages.
+- Public signing now verifies the main signing workflow for typed signatures, date picker values, select/dropdown values, attachment upload fields, required-field validation, signer self-delegation, idempotent repeat submits, and completed readonly overlay display with attachment links.
+- Mock Dashboard now replaces the static headline widgets with live completion/inbox/search/audit/webhook data where the API is connected, exports the dashboard summary as CSV, keeps Recent Activity in a bounded scrollable audit-backed list with load-more paging, and routes visible dashboard actions to their matching modules.
+- Mock organization switching now loads real organizations from `/organizations/`, persists `HANMAK_ORGANIZATION_ID`, updates the sidebar company label, sends `X-HanMak-Organization` on API calls, and refreshes the current page so dashboard/module data follows the selected company. `seed_demo` now creates Acme, Beta Ventures, and Gamma Holdings with distinct envelope counts for switching QA.
+- Production readiness polish: login/recovery messaging now gives clearer MFA, passkey, lockout, and recovery next steps; account-recovery API responses include neutral next-step metadata; System Health readiness now covers TLS primary domain, backup policies, restore-drill timestamp, secrets manager, external alerts, and exposes a deployment runbook endpoint plus UI details.
+- Mock Approval Queue now supports backend-backed CSV export and delegation in addition to approve/reject/request-changes.
+- Click-through audit pass reduced remaining visible toast-only actions on backend-backed modules: Workflow Builder and Compliance fallback pages now render live API shells, API Keys no longer carries duplicate stub key handlers, API Docs downloads the live OpenAPI schema/Postman collection, Form Builder exports real JSON, Approval Queue quick delegation calls the backend delegate endpoint, Webhook Lab queues backend webhook delivery records, and Billing invoice/license detail actions open real data views.
+- Docker build now pins `Pillow==12.2.0` explicitly so ReportLab/qrcode image dependencies resolve deterministically in the backend image.
+- Mock Audit Trail backend filtering now matches the UI controls for message search, event type prefix, and created-at date range.
+- Mock Workflow Builder now supports backend-backed edit/delete, stage replacement, validation/simulation, activation safeguards, run creation, event viewing, archive, and run advance.
+- Mock Inbox page now uses the backend aggregate endpoint for task counts and inline actions: task/document/priority/search filters, visible-row checkbox selection, bulk mark-read/snooze/retry/cancel, mark-read, snooze, approve, delegate approval tasks, retry/cancel failed tasks, and delete failed task-run records.
+- Mock Operations Console exposes previously backend-only operational surfaces: risk findings, policy rules, API request logs, event outbox, OAuth grants, object permission grants, feature flags, and search-index rebuild.
+- Mock Release Control provides fine-grained feature gates for the current app surface: Dashboard, Inbox, Profile, Login/Setup, Envelopes, Signing, Templates, Form Builder, File Library, Workflow, Approvals, API Docs, API Keys, OAuth Apps, Webhooks, SDK/CLI, Test Lab, Email Messages, Users, Organizations, Teams, Roles, Background Tasks, System Health, Settings, SSO/SCIM/LDAP, Audit Evidence, Legal Holds, Retention, Data Residency, Compliance Exports, Billing, License, Roadmap, Operations, and Release Control. It includes automatic default seeding, stage/rollout controls, QA checklist review, release action, summary metrics, and audit logging.
+- The mock router respects cached release flags and shows a gated screen for unreleased modules after release controls have been loaded, while keeping Release Control itself accessible. Selected backend endpoints now enforce the same release controls through `feature_flag_key` checks, including templates, envelopes, form fields, files, signing, workflow, approvals, developer APIs, admin/org surfaces, tasks, system health, identity, compliance, billing, and operations.
+- Inbox/My Tasks now has backend-backed task ownership, delegated approvals, signer-email filtering, unread state, snooze/unsnooze support, completed recent work, approval approve/reject/delegate actions, and failed-task retry/cancel actions wired into the frontend.
+- Templates and Envelopes now have backend-backed archive/activate/duplicate/setup/use flows, template version field/party metadata, envelope summary counts, readiness validation before send, safe draft recipient replacement that preserves field assignments, dynamic template-party recipient selection, and frontend controls for using/duplicating/archiving templates and viewing organization-wide envelope stats.
+- Form Builder can now start from a File Library document, reuse backend-rendered page previews, save the selected library document into a template without a second upload, and assign fields to dynamically added party keys.
+- Static sample rows were removed from the Envelopes/Templates/File Library fallbacks so visible records on those pages are live API records before destructive actions such as delete are offered.
+- Detailed application documentation now includes `docs/USER_GUIDE.md` and `docs/DEVELOPER_GUIDE.md`.
+- Mock Audit page can export the loaded event page as CSV and verify pasted SHA-256 hashes against stored evidence bundles.
+- Mock Admin includes an impersonation request queue with approve/deny/start controls and an End Impersonation topbar action that restores the previous token.
+- Admin Teams and Roles now complete the expected create/edit/delete lifecycle with backend audit events for team and role changes; frontend team/member/role actions surface backend validation errors instead of failing silently.
+- Mock Background Tasks no longer falls back to sample task rows or fake scheduler entries. Empty task tables and missing Celery inspect data now render explicit live-state placeholders, while queue cards continue to show known queues at zero when no backend rows exist.
+- Mock System Health now supports backend-backed incident creation/resolution and public status publishing from the UI, with health cards driven by live health-check summary metrics where available.
+- Mock Settings polish now persists notification digest frequency to profile preferences, verifies storage through live health metrics, and revokes visible active sessions through `/user-sessions/{id}/revoke/`.
+- Mock Storage settings now replaces static encryption and usage samples with saved encryption/backend settings plus live disk, object storage, and MinIO health metrics from `/health-checks/summary/`.
+- Profile quick actions now route to real security/notification/org actions and Sign Out clears HanMak tokens before returning to the login page.
+- Mock Approval Queue now includes delegated approvals in the visible queue/status counts and opens a backend-backed approval detail modal with envelope context and follow-up actions.
+- Public signing decline is now backend-native: signer decline marks the recipient/envelope declined, records the reason, revokes other open signing sessions, and the public signer UI exposes a decline modal.
+- Mock SDK/Test Lab polish now copies SDK snippets, hydrates visible run status/details from `/task-runs/`, exports backend test-lab run data as CSV, queues scheduled/all-suite/single-suite runs, and reruns failed recorded suites as Background Task records.
+- OAuth Apps now support backend-backed edit and one-time client-secret rotation. The backend stores only a hash, and the mock UI shows the generated replacement secret once after rotation.
+- Webhook endpoint cards now support backend-backed edit, delete, test-delivery queueing, delivery history, and replay from the active visible page.
+- License activation now seeds a backend feature list when none is supplied, and the mock License page renders the backend `features` array instead of static curated labels.
+- API Docs sidebar/content is now aligned: Authentication, Rate Limiting, Errors & Status Codes, Pagination, Envelopes, Templates, Signatures, Webhooks, Users, Audit Trail, and Files all have matching content sections.
+- Admin Users and Organizations now expose the super-admin cross-organization path in the mock UI: create/invite user modals include target-organization selection, Organizations can create root organizations, and super-admin cleanup can call direct delete after export/review.
+- Settings polish now fixes the settings nav active-state mismatch and applies Branding logo/color changes immediately in the shell while persisting custom signing/email domains through the backend branding endpoint.
+- Frontend/backend hookup audit now records each visible module against its backend surface in `docs/FRONTEND_BACKEND_HOOKUP_AUDIT.md`; dashboard, audit, approval, user, organization, and test-lab exports use file downloads instead of clipboard-only CSV.
+- Roadmap feedback now persists through `/app-settings/` under the `roadmap` namespace for feature requests, subscriptions, upvotes, and notify-me records; deeper triage and delivery automation remain future polish.
+- Seed data enriched: four billing plans (Starter/Growth/Business/Enterprise), Business subscription with six usage metrics, four API keys, three webhook endpoints with representative delivery records, ten audit events of varying severity, six additional approval requests, seven seeded document records, and two OAuth applications with one grant.
+- Profile page fully live: Personal Info PATCH save, Sessions list + per-session/revoke-all-others actions, Activity timeline from `/profiles/activity/`, Notifications PATCH/POST upsert, and Change Password via new `change_password` action on `UserProfileViewSet` with auth-version bump.
+- Public invitation inspect/accept actions now bypass the admin-only release gate correctly while authenticated invitation management remains gated.
+- Envelope-send readiness is enforced consistently: send actions require recipients, at least one signer/approver, and at least one form field; signing workflow tests now create a real required field before sending.
+- Cross-organization write attempts now consistently return `403 Forbidden` under the hardened tenant/RBAC guard.
+- Current backend verification checkpoint is green: `manage.py check`, `makemigrations --check --dry-run`, and `accounts.tests.TenantScopedAPITests` (`91 tests OK`).
+- Signed PDF field-placement bug diagnosed and fixed across three layers: (1) `evidence/pdf.py` `build_stamped_source_pdf()` now always derives the overlay canvas dimensions from `source_page.mediabox` instead of `DocumentPage.width/height`, so a 595×842 pt A4 source no longer gets a 1040×1471 overlay stamped verbatim into it; (2) `form-builder.js` `fbSaveTemplateDocument()` now calls `/documents/{id}/render_pages/` immediately after `/documents/{id}/process/` so page-preview images exist and `build_image_overlay_pdf()` is used as the primary rendering path; (3) `live-wiring.js` `signerFieldGeometry()` and `signerPageHeight()` now scale the stored `page_height` by the same `HANMAK_CANONICAL_PAGE_WIDTH / page_width` ratio used for X/Y coordinates so field top-clamping uses the rendered height, not the raw stored height.
+
+## Next Checkpoint
+
+- Run Docker click-through QA through the Nginx proxy at `http://127.0.0.1:8080/mock/`.
+- Click every visible create/edit/delete/send/retry/export/release/delegate/test action across Dashboard, Inbox, Envelopes, Templates, Form Builder, File Library, Signing, Workflow, Approvals, Audit, Admin, Settings, Developer, Compliance, Billing, License, and Operations.
+- Record any remaining UI/API mismatches as either a fix, a deliberately disabled action, or a documented deferred production feature.
+
+## Still To Add Later
+
+- Production-grade auth shell polish beyond the mock shell: fully separate public production pages, localization, and deeper recovery UX.
+- Robust production antivirus integration and visual QA for complex PDFs.
+- Full SendGrid ECDSA signature verification helper integration, beyond the current signed-header enforcement.
+- Full signer portal frontend beyond the mock/live-wired public signing page.
+- Production OAuth login mapping/account-linking rules, provider certificate rotation, and complete SCIM group lifecycle.
+- Search relevance beyond the current Postgres full-text / weighted-term ranking: stemming dictionaries, synonyms, typo tolerance, and cross-object relevance tuning.
+- Production PDF rasterization with source-accurate page images instead of placeholder PNG canvases, intentionally deferred while the current PNG/canvas preview works.
+- Production deployment hardening beyond readiness checks: Gunicorn/ASGI sizing, real TLS/domain rollout, restore drills, secret rotation, and infrastructure runbooks.
+- Production observability beyond optional APM bootstrap: richer database query analysis, hosted status-page publishing, external alert provider delivery, and trace dashboards.
+- Production payment processor integration beyond webhook ingestion: real checkout/portal provider session creation, taxes, receipts, disputes, refunds, and subscription lifecycle edge cases.

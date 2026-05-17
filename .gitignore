@@ -1,0 +1,52 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Django
+*.sqlite3
+/backend/media/
+/backend/staticfiles/
+/backend/static/
+local_settings.py
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+Thumbs.db
+
+# Node (if any tooling added later)
+node_modules/
+npm-debug.log*
+
+# Coverage / test artefacts
+.coverage
+htmlcov/
+.pytest_cache/
+
+# Directories
+.agents
+.claude
+.codex

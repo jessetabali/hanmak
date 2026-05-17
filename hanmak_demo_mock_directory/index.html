@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HanMak — Enterprise Document Signing Platform</title>
+  <link rel="stylesheet" href="styles.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600;9..40,700;9..40,800&family=JetBrains+Mono:wght@400;500;600&family=Dancing+Script:wght@600&display=swap" rel="stylesheet">
+</head>
+<body>
+
+<div class="app-shell" id="app">
+
+  <!-- SIDEBAR -->
+  <aside class="sidebar" id="sidebar">
+
+    <!-- Logo -->
+    <a class="sidebar-logo" href="#" onclick="navigate('dashboard'); return false;">
+      <div class="sidebar-logo-icon">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+          <path d="M14 2v6h6"/><line x1="9" y1="15" x2="15" y2="15"/><line x1="9" y1="11" x2="11" y2="11"/>
+        </svg>
+      </div>
+      <div class="sidebar-logo-text">
+        <span class="sidebar-logo-name">HanMak</span>
+        <span class="sidebar-logo-sub">Enterprise Edition</span>
+      </div>
+    </a>
+
+    <!-- Org Switcher -->
+    <div class="sidebar-org" onclick="showOrgSwitcher()">
+      <div class="sidebar-org-avatar">HM</div>
+      <span class="sidebar-org-name">Loading organization...</span>
+      <svg class="sidebar-org-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m7 15 5 5 5-5"/><path d="m7 9 5-5 5 5"/></svg>
+    </div>
+
+    <!-- Navigation -->
+    <nav class="sidebar-nav">
+
+      <!-- Core -->
+      <div class="nav-section">
+        <div class="nav-section-label">Core</div>
+        <button class="nav-item active" onclick="navigate('dashboard')" data-page="dashboard" data-label="Dashboard">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+          Dashboard
+        </button>
+        <button class="nav-item" onclick="navigate('inbox')" data-page="inbox" data-label="Inbox / My Tasks">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg>
+          Inbox / My Tasks
+          <span class="nav-badge" id="nav-inbox-count">—</span>
+        </button>
+        <button class="nav-item" onclick="navigate('envelopes')" data-page="envelopes" data-label="Envelopes">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+          Envelopes
+        </button>
+        <button class="nav-item" onclick="navigate('templates')" data-page="templates" data-label="Templates">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+          Templates
+        </button>
+        <button class="nav-item" onclick="navigate('form-builder')" data-page="form-builder" data-label="Form Builder">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M9 21V9"/></svg>
+          Form Builder
+        </button>
+        <button class="nav-item" onclick="navigate('documents')" data-page="documents" data-label="File Library">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+          File Library
+        </button>
+      </div>
+
+      <!-- Workflow -->
+      <div class="nav-section">
+        <div class="nav-section-label">Workflow</div>
+        <button class="nav-item" onclick="navigate('signing')" data-page="signing" data-label="Signing Workflow">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/></svg>
+          Signing Workflow
+        </button>
+        <button class="nav-item" onclick="navigate('workflow-builder')" data-page="workflow-builder" data-label="Workflow Builder">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 0 1 2 2v7"/><line x1="6" y1="9" x2="6" y2="21"/></svg>
+          Workflow Builder
+        </button>
+        <button class="nav-item" onclick="navigate('approvals')" data-page="approvals" data-label="Approval Queue">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+          Approval Queue
+          <span class="nav-badge warning" id="nav-approval-count">—</span>
+        </button>
+        <button class="nav-item" onclick="navigate('audit')" data-page="audit" data-label="Audit Evidence">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+          Audit Evidence
+        </button>
+      </div>
+
+      <!-- Developer -->
+      <div class="nav-section">
+        <div class="nav-section-label">Developer</div>
+        <button class="nav-item" onclick="navigate('api-docs')" data-page="api-docs" data-label="API Docs">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+          API Docs
+        </button>
+        <button class="nav-item" onclick="navigate('api-keys')" data-page="api-keys" data-label="API Keys">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m21 2-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0 3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
+          API Keys
+        </button>
+        <button class="nav-item" onclick="navigate('oauth-apps')" data-page="oauth-apps" data-label="OAuth Apps">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/></svg>
+          OAuth Apps
+        </button>
+        <button class="nav-item" onclick="navigate('webhooks')" data-page="webhooks" data-label="Webhook Lab">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M18 16.98h-5.99c-1.1 0-1.95.94-2.48 1.9A4 4 0 0 1 2 17c.01-.7.2-1.4.57-2"/><path d="m6 17 3.13-5.78c.53-.97.1-2.18-.5-3.1a4 4 0 1 1 6.89-4.06"/><path d="m12 6 3.13 5.73C15.66 12.7 16.9 13 18 13a4 4 0 0 1 0 8"/></svg>
+          Webhook Lab
+        </button>
+        <button class="nav-item" onclick="navigate('operations-console')" data-page="operations-console" data-label="Operations Console">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 19.5V4.5A2.5 2.5 0 0 1 6.5 2h11A2.5 2.5 0 0 1 20 4.5v15A2.5 2.5 0 0 1 17.5 22h-11A2.5 2.5 0 0 1 4 19.5Z"/><path d="M8 6h8M8 10h8M8 14h4"/></svg>
+          Operations
+        </button>
+        <button class="nav-item" onclick="navigate('release-control')" data-page="release-control" data-label="Release Control">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-5"/></svg>
+          Release Control
+        </button>
+        <button class="nav-item" onclick="navigate('email-messages')" data-page="email-messages" data-label="Email Messages">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+          Email Messages
+        </button>
+        <button class="nav-item" onclick="navigate('sdk')" data-page="sdk" data-label="SDK / CLI">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+          SDK / CLI
+        </button>
+        <button class="nav-item" onclick="navigate('test-lab')" data-page="test-lab" data-label="Test Lab">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><line x1="10" y1="9" x2="8" y2="9"/></svg>
+          Test Lab
+        </button>
+      </div>
+
+      <!-- Admin -->
+      <div class="nav-section">
+        <div class="nav-section-label">Admin</div>
+        <button class="nav-item" onclick="navigate('users')" data-page="users" data-label="Users">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+          Users
+        </button>
+        <button class="nav-item" onclick="navigate('organizations')" data-page="organizations" data-label="Organizations">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+          Organizations
+        </button>
+        <button class="nav-item" onclick="navigate('teams')" data-page="teams" data-label="Teams">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+          Teams
+        </button>
+        <button class="nav-item" onclick="navigate('roles')" data-page="roles" data-label="Roles & Permissions">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+          Roles & Permissions
+        </button>
+        <button class="nav-item" onclick="navigate('tasks')" data-page="tasks" data-label="Background Tasks">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          Background Tasks
+          <span class="nav-badge danger" id="nav-task-count">—</span>
+        </button>
+        <button class="nav-item" onclick="navigate('system-health')" data-page="system-health" data-label="System Health">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+          System Health
+        </button>
+      </div>
+
+      <!-- Settings -->
+      <div class="nav-section">
+        <div class="nav-section-label">Settings</div>
+        <button class="nav-item" onclick="navigate('settings-general')" data-page="settings-general" data-label="General">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93A10 10 0 1 1 4.93 19.07 10 10 0 0 1 19.07 4.93z"/></svg>
+          General
+        </button>
+        <button class="nav-item" onclick="navigate('settings-branding')" data-page="settings-branding" data-label="Branding">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="13.5" cy="6.5" r=".5"/><circle cx="17.5" cy="10.5" r=".5"/><circle cx="8.5" cy="7.5" r=".5"/><circle cx="6.5" cy="12.5" r=".5"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z"/></svg>
+          Branding
+        </button>
+        <button class="nav-item" onclick="navigate('settings-email')" data-page="settings-email" data-label="Email / SMTP">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+          Email / SMTP
+        </button>
+        <button class="nav-item" onclick="navigate('settings-storage')" data-page="settings-storage" data-label="Storage">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
+          Storage
+        </button>
+        <button class="nav-item" onclick="navigate('settings-security')" data-page="settings-security" data-label="Security">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+          Security
+        </button>
+        <button class="nav-item" onclick="navigate('sso')" data-page="sso" data-label="SSO / SCIM / LDAP">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/></svg>
+          SSO / SCIM / LDAP
+        </button>
+        <button class="nav-item" onclick="navigate('settings-notifications')" data-page="settings-notifications" data-label="Notifications">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+          Notifications
+        </button>
+      </div>
+
+      <!-- Compliance -->
+      <div class="nav-section">
+        <div class="nav-section-label">Compliance</div>
+        <button class="nav-item" onclick="navigate('legal-holds')" data-page="legal-holds" data-label="Legal Holds">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 3H5a2 2 0 0 0-2 2v4m6-6h10a2 2 0 0 1 2 2v4M9 3v11m0 0H5a2 2 0 0 0-2 2v3a2 2 0 0 0 2 2h4m0-5h10m0 0v3a2 2 0 0 1-2 2H9"/></svg>
+          Legal Holds
+        </button>
+        <button class="nav-item" onclick="navigate('retention')" data-page="retention" data-label="Retention Policies">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+          Retention Policies
+        </button>
+        <button class="nav-item" onclick="navigate('data-residency')" data-page="data-residency" data-label="Data Residency">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+          Data Residency
+        </button>
+        <button class="nav-item" onclick="navigate('compliance-exports')" data-page="compliance-exports" data-label="Compliance Exports">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          Compliance Exports
+        </button>
+      </div>
+
+      <!-- Business -->
+      <div class="nav-section">
+        <div class="nav-section-label">Business</div>
+        <button class="nav-item" onclick="navigate('billing')" data-page="billing" data-label="Usage & Billing">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
+          Usage & Billing
+        </button>
+        <button class="nav-item" onclick="navigate('license')" data-page="license" data-label="License">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="8" r="6"/><path d="M15.477 12.89 17 22l-5-3-5 3 1.523-9.11"/></svg>
+          License
+        </button>
+        <button class="nav-item" onclick="navigate('roadmap')" data-page="roadmap" data-label="Roadmap">
+          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><line x1="3" y1="12" x2="21" y2="12"/><polyline points="15 5 22 12 15 19"/><polyline points="9 5 2 12 9 19"/></svg>
+          Roadmap
+        </button>
+      </div>
+
+    </nav>
+
+    <!-- Footer -->
+    <div class="sidebar-footer">
+      <div class="sidebar-user" onclick="navigate('profile')">
+        <div class="sidebar-user-avatar">HM</div>
+        <div class="sidebar-user-info">
+          <div class="sidebar-user-name">Loading user...</div>
+          <div class="sidebar-user-role">Signed in session</div>
+        </div>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#3d444d" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93A10 10 0 1 1 4.93 19.07 10 10 0 0 1 19.07 4.93z"/></svg>
+      </div>
+    </div>
+
+  </aside>
+
+  <!-- MAIN CONTENT -->
+  <div class="main-content">
+
+    <!-- TOPBAR -->
+    <div class="topbar">
+      <div class="topbar-breadcrumb" id="breadcrumb">
+        <span class="topbar-breadcrumb-item">HanMak</span>
+        <svg class="topbar-breadcrumb-sep" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+        <span class="topbar-breadcrumb-item current" id="breadcrumb-current">Dashboard</span>
+      </div>
+
+      <div class="topbar-search">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--text-tertiary)"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input type="text" placeholder="Search everything…" id="global-search">
+        <kbd>⌘K</kbd>
+      </div>
+
+      <div class="topbar-actions">
+        <button class="topbar-icon-btn" title="Sign in" onclick="navigate('login')">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
+        </button>
+        <button class="topbar-icon-btn" title="Sign out" onclick="logoutLive()">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+        </button>
+        <button class="topbar-icon-btn" title="Help">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+        </button>
+        <button class="topbar-icon-btn" title="Notifications">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+          <span class="notif-dot"></span>
+        </button>
+        <button class="topbar-icon-btn" title="Toggle sidebar" onclick="toggleSidebar()">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- PAGE CONTENT (dynamically rendered) -->
+    <div class="page-content" id="page-content">
+      <!-- Rendered by JS -->
+    </div>
+
+  </div>
+</div>
+
+<!-- TOAST CONTAINER -->
+<div class="toast-container" id="toast-container"></div>
+
+<!-- Core app scripts -->
+<script src="beta-config.js"></script>
+<script src="api-client.js"></script>
+<script src="app.js"></script>
+<!-- All page modules -->
+<script src="./dashboard.js"></script>
+<script src="./profile.js"></script>
+<script src="./inbox.js"></script>
+<script src="./envelopes.js"></script>
+<script src="./templates.js"></script>
+<script src="./form-builder.js"></script>
+<script src="./documents.js"></script>
+<script src="./signing.js"></script>
+<script src="./workflow-builder.js"></script>
+<script src="./approvals.js"></script>
+<script src="./audit.js"></script>
+<script src="./api-docs.js"></script>
+<script src="./api-keys.js"></script>
+<script src="./developer.js"></script><!-- oauth-apps, webhooks, sdk, test-lab -->
+<script src="./admin.js"></script><!-- users, organizations, teams, roles -->
+<script src="./system.js"></script><!-- tasks, system-health -->
+<script src="./settings.js"></script><!-- settings-general, branding, email, storage, security, notifications -->
+<script src="./sso.js"></script>
+<script src="./compliance.js"></script><!-- legal-holds, retention, data-residency, compliance-exports -->
+<script src="./business.js"></script><!-- billing, license, roadmap -->
+<script src="./login.js"></script><!-- dedicated live sign-in page -->
+<script src="./setup.js"></script><!-- first-time setup and invite acceptance -->
+<script src="./live-wiring.js"></script><!-- API-backed dashboard, inbox, envelopes, signing links -->
+
+<script>
+  // Initialize on load
+  document.addEventListener('DOMContentLoaded', () => {
+    if (typeof hydrateOrganizationChrome === 'function') hydrateOrganizationChrome();
+    if (typeof hydrateShellChrome === 'function') hydrateShellChrome();
+    const params = new URLSearchParams(location.search);
+    const page = params.get('page');
+    const token = params.get('token');
+    if (page) navigate(page);
+    else if (!token) navigate('dashboard');
+  });
+</script>
+</body>
+</html>
