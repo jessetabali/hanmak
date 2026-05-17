@@ -175,6 +175,41 @@ This backend has been expanded using `Documentation/Initial Development Plan/bas
 - Click every visible create/edit/delete/send/retry/export/release/delegate/test action across Dashboard, Inbox, Envelopes, Templates, Form Builder, File Library, Signing, Workflow, Approvals, Audit, Admin, Settings, Developer, Compliance, Billing, License, and Operations.
 - Record any remaining UI/API mismatches as either a fix, a deliberately disabled action, or a documented deferred production feature.
 
+## React Frontend — Production Implementation Plan
+
+The React frontend scaffold (`react-frontend/`) was initialized 2026-05-18 and provides:
+
+- Vite 5 + React 18 + React Router v6 + TanStack Query v5 + Zustand + Axios
+- Full route map matching every vanilla JS page ID
+- Axios client with JWT attach, 401-refresh-and-replay, and `X-HanMak-Organization` header
+- Central endpoint registry (`api/endpoints.js`) covering ~80 API paths
+- `useApiQuery` + `useApiMutation` wrappers over TanStack Query
+- `authStore` (Zustand) — login/logout, user, organization, token lifecycle
+- `uiStore` (Zustand) — sidebar collapsed/mobile state
+- `AppShell` with `AuthGuard`, `Sidebar` (React Router `NavLink`), `Topbar`
+- `SettingsLayout` — nested routes replace the manual `settingsNav(active)` active-state logic
+- `ToastProvider` + `useToast()` context — replaces global `showToast()`
+- `useApiQuery` / `useApiMutation` hooks — replace all `hanmakApi()` + `_init()` patterns
+- Working stubs for all 40+ pages loading live data from the DRF backend
+- Production CSS with design tokens, layout, and shared component classes
+
+### React Implementation Phases
+
+See `docs/REACT_FRONTEND_ARCHITECTURE.md` for the full implementation roadmap. Priority order:
+
+1. **Phase 1 — Core signing flow**: EnvelopeList, EnvelopeDetail, TemplateList, FormBuilder (drag-and-drop canvas), PublicSigning
+2. **Phase 2 — Collaboration**: Inbox (bulk actions), Approvals (modal, delegate), WorkflowBuilder (stage editor)
+3. **Phase 3 — Documents & audit**: Documents (upload/process), AuditTrail (filters), EvidenceBundles
+4. **Phase 4 — Admin & settings**: Users, Organizations, Teams, Roles, all Settings save handlers
+5. **Phase 5 — Developer tools**: ApiKeys, OAuthApps, Webhooks, OperationsConsole, ReleaseControl
+6. **Phase 6 — Compliance & billing**: Full forms and live data for all compliance/billing pages
+
+### Vanilla JS Prototype Retirement
+
+`hanmak_demo_mock_directory/` remains the live beta prototype and reference implementation. It will be retired (removed from active serving) once the React frontend completes Phase 3 and passes the same Docker click-through QA that the vanilla JS frontend passed.
+
+---
+
 ## Still To Add Later
 
 - Production-grade auth shell polish beyond the mock shell: fully separate public production pages, localization, and deeper recovery UX.

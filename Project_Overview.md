@@ -1,12 +1,27 @@
 # Project Overview
 
-HanMak is a feature-complete enterprise document-signing platform — think DocuSign/PandaDoc. The repo has two parts: a vanilla-JS SPA mock frontend and a Django/DRF backend. The pattern is to build the backend API first, then progressively replace static mock data with live API calls.
+HanMak is a feature-complete enterprise document-signing platform — think DocuSign/PandaDoc. The repo has three parts: a vanilla-JS SPA beta prototype, a React production frontend, and a Django/DRF backend.
 
 ---
 
-## Frontend (`hanmak_demo_mock_directory/`)
+## React Frontend (`react-frontend/`) — Production Target
 
-~13,000 lines across 27 JS files, no build step.
+Vite 5 + React 18 + React Router v6 + TanStack Query v5 + Zustand + Axios.
+
+This is the production frontend. It uses the same Django/DRF backend as the vanilla JS prototype and provides a component-based, maintainable implementation of every page in the platform.
+
+See `docs/REACT_FRONTEND_ARCHITECTURE.md` for the full architecture guide, route map, data-fetching conventions, and implementation roadmap.
+
+**Quick start:**
+```bash
+cd react-frontend && npm install && npm run dev
+```
+
+---
+
+## Vanilla JS Beta Frontend (`hanmak_demo_mock_directory/`) — Beta Prototype
+
+~13,000 lines across 27 JS files, no build step. Fully live-wired to the DRF backend. Used for beta testing and as the source-of-truth reference for every page's backend API surface and UX design. Will be retired once the React frontend reaches feature parity.
 
 Architecture is a hand-rolled SPA:
 
@@ -105,7 +120,9 @@ Detailed guides:
 |---|---|
 | `docs/USER_GUIDE.md` | Product workflow guide for operators, admins, signers, reviewers, and release managers |
 | `docs/DEVELOPER_GUIDE.md` | Architecture, run commands, API patterns, release-control workflow, testing, and feature-extension guide |
-| `backend/MOCK_ALIGNMENT.md` | Mock-to-backend alignment status |
+| `docs/REACT_FRONTEND_ARCHITECTURE.md` | React frontend architecture, route map, conventions, and implementation roadmap |
+| `docs/BETA_FRONTEND_READINESS.md` | Beta testing checklist and readiness notes for the vanilla JS prototype |
+| `backend/MOCK_ALIGNMENT.md` | Vanilla JS mock-to-backend alignment status (reference for React implementation) |
 | `backend/PLAN_ALIGNMENT.md` | Build-plan and implementation alignment notes |
 
 **Current verification checkpoint:**

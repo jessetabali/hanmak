@@ -1,5 +1,11 @@
 # Mock Alignment Notes
 
+This document tracks the alignment between the vanilla JS beta prototype (`hanmak_demo_mock_directory/`) and the Django/DRF backend. It also serves as the authoritative reference for the React production frontend (`react-frontend/`) — each row in the "Strongly Represented" table identifies the backend endpoints that the React implementation must wire.
+
+**Frontend status as of 2026-05-18:**
+- `hanmak_demo_mock_directory/` — fully live-wired beta prototype; used for beta testing.
+- `react-frontend/` — React 18 production frontend scaffold initialized; all pages load live API data; full feature parity implementation in progress (see `docs/REACT_FRONTEND_ARCHITECTURE.md`).
+
 Compared against `hanmak_demo_mock_directory` as of 2026-05-14.
 
 ---
@@ -60,6 +66,7 @@ Compared against `hanmak_demo_mock_directory` as of 2026-05-14.
 
 ## Current Verification
 
+- 2026-05-18 React frontend scaffold initialized: `react-frontend/` created with Vite 5 + React 18 + React Router v6 + TanStack Query v5 + Zustand. All 40+ pages wired with live `useApiQuery` data fetching. Full feature parity implementation roadmap documented in `docs/REACT_FRONTEND_ARCHITECTURE.md`.
 - 2026-05-18 signed PDF coordinate fix: Three-layer root-cause fix applied for field misplacement in signed PDFs. (1) `evidence/pdf.py` `build_stamped_source_pdf()` now always creates the overlay canvas at the actual source page dimensions from `source_page.mediabox` — the prior bug created a 1040×1471 pt canvas and stamped it verbatim into a 595×842 pt A4 source, placing fields near top-right instead of center. (2) `form-builder.js` now calls `/documents/{id}/render_pages/` immediately after `/documents/{id}/process/` so `DocumentPage.image` is populated and `build_image_overlay_pdf()` becomes the primary rendering path. (3) `live-wiring.js` `signerFieldGeometry()` and `signerPageHeight()` now scale `page_height` by the same `HANMAK_CANONICAL_PAGE_WIDTH / page_width` ratio used for X/Y coordinates so field top-clamping uses the rendered height.
 - 2026-05-16 side-by-side hookup pass: `docs/FRONTEND_BACKEND_HOOKUP_AUDIT.md` now maps visible frontend modules to backend endpoints. The pass also converted remaining report/export actions on Dashboard, Audit, Approvals, Users, Organizations, and Test Lab from clipboard-only CSV/JSON to downloaded files. Remaining copy/toast actions are copy/info/no-file helpers or development placeholders blocked in beta mode.
 - 2026-05-15 frontend live-data verification: Dashboard/profile/sidebar shell hydration, Approval Queue analytics/load, active Test Lab task-run hydration/report/detail/rerun flow, and SSO SAML preset/toggle persistence were checked in code.

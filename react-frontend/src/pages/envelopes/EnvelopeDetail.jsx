@@ -1,0 +1,378 @@
+import { useState } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
+import { useApiQuery, useApiMutation } from '../../hooks/useApi';
+import { apiClient } from '../../api/client';
+import { EP } from '../../api/endpoints';
+import { useToast } from '../../hooks/useToast';
+import { formatDate, formatDateTime } from '../../utils/formatting';
+import Modal from '../../components/ui/Modal';
+import Badge, { statusColor } from '../../components/ui/Badge';
+import Spinner from '../../components/ui/Spinner';
+import Avatar from '../../components/ui/Avatar';
+import ConfirmDialog from '../../components/ui/ConfirmDialog';
+
+function titleCase(str) {
+  return (str || '').split('_').map(p => p.charAt(0).toUpperCase() + p.slice(1)).join(' ');
+}
+
+export default function EnvelopeDetail() {
+  const { id } = useParams();
+  const navigate = useNavigate();
+  const toast = useToast();
+
+  const [voidModal, setVoidModal] = useState(false);
+  const [voidReason, setVoidReason] = useState('');
+  const [confirmDelete, setConfirmDelete] = useState(false);
+
+  // ---- Queries ----
+  const { data: envelope, isLoading, isError } = useApiQuery(
+    ['envelope', id],
+    EP.ENVELOPE(id)
+  );
+
+  const { data: recipientsData, isLoading: recipientsLoading } = useApiQuery(
+    ['recipients', id],
+    EP.RECIPIENTS,
+    { envelope: id }
+  );
+
+  const recipients = recipientsData?.results ?? envelope?.recipients ?? [];
+
+  // ---- Mutations ----
+  const sendMutation = useApiMutation(
+    () => apiClient.post(EP.ENVELOPE_SEND(id), {}),
+    {
+      invalidateKeys: ['envelope', 'envelopes', 'envelopes-summary'],
+      onSuccess: () => toast.success('Envelope sent successfully'),
+      onError: (e) => toast.error(e.response?.data?.detail || e.message),
+    }
+  );
+
+  const voidMutation = useApiMutation(
+    (reason) => apiClient.post(EP.ENVELOPE_VOID(id), { reason }),
+    {
+      invalidateKeys: ['envelope', 'envelopes', 'envelopes-summary'],
+      onSuccess: () => {
+        toast.success('Envelope voided');
+        setVoidModal(false);
+        setVoidReason('');
+      },
+      onError: (e) => toast.error(e.response?.data?.detail || e.message),
+    }
+  );
+
+  const deleteMutation = useApiMutation(
+    () => apiClient.delete(EP.ENVELOPE(id)),
+    {
+      invalidateKeys: ['envelopes', 'envelopes-summary'],
+      onSuccess: () => {
+        toast.success('Envelope deleted');
+        navigate('/envelopes');
+      },
+      onError: (e) => toast.error(e.response?.data?.detail || e.message),
+    }
+  );
+
+  const handleDownload = () => {
+    const base = apiClient.defaults.baseURL || '/api/v1';
+    window.open(`${base}${EP.ENVELOPE_DOWNLOAD(id)}`, '_blank');
+  };
+
+  if (isLoading) return <Spinner center />;
+  if (isError || !envelope) {
+    return (
+      <div>
+        <div className="page-header">
+          <button className="btn btn-ghost btn-sm" onClick={() => navigate('/envelopes')}>← Back</button>
+        </div>
+        <div className="alert alert-warning" style={{ marginTop: '1rem' }}>Envelope not found or you do not have access.</div>
+      </div>
+    );
+  }
+
+  const isDraft = envelope.status === 'draft';
+  const isActionable = ['sent', 'viewed', 'partially_signed'].includes(envelope.status);
+  const isCompleted = envelope.status === 'completed';
+  const isVoidable = isDraft || isActionable;
+
+  const today = new Date().toISOString().slice(0, 10);
+  const isOverdue = envelope.due_date && !['completed', 'voided', 'declined', 'expired'].includes(envelope.status) && envelope.due_date < today;
+
+  const pct = envelope.completion_percent || 0;
+  const documents = envelope.documents || [];
+
+  return (
+    <div>
+      {/* Page header */}
+      <div className="page-header">
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: '1rem', flexWrap: 'wrap' }}>
+          <button className="btn btn-ghost btn-sm" onClick={() => navigate('/envelopes')}>← Back</button>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+              <h1 className="page-title" style={{ margin: 0 }}>{envelope.name}</h1>
+              <Badge color={statusColor(envelope.status)}>{titleCase(envelope.status)}</Badge>
+              {isOverdue && <Badge color="danger">OVERDUE</Badge>}
+            </div>
+            <p className="page-subtitle" style={{ marginTop: '0.25rem' }}>ENV-{envelope.id}</p>
+          </div>
+        </div>
+        <div className="flex gap-2">
+          {isDraft && (
+            <button
+              className="btn btn-primary"
+              onClick={() => sendMutation.mutate()}
+              disabled={sendMutation.isPending}
+            >
+              {sendMutation.isPending ? 'Sending…' : 'Send'}
+            </button>
+          )}
+          {(isCompleted || isActionable) && (
+            <button className="btn btn-ghost" onClick={handleDownload}>
+              Download PDF
+            </button>
+          )}
+          {isVoidable && (
+            <button
+              className="btn btn-ghost"
+              style={{ color: 'var(--warning)' }}
+              onClick={() => { setVoidReason(''); setVoidModal(true); }}
+            >
+              Void
+            </button>
+          )}
+          <button
+            className="btn btn-ghost"
+            style={{ color: 'var(--danger)' }}
+            onClick={() => setConfirmDelete(true)}
+          >
+            Delete
+          </button>
+        </div>
+      </div>
+
+      {/* Stats row */}
+      <div className="stats-grid" style={{ '--cols': 4, marginBottom: '1.5rem' }}>
+        <div className="stat-card">
+          <div className="stat-label">Status</div>
+          <div className="stat-value" style={{ fontSize: '1rem' }}>
+            <Badge color={statusColor(envelope.status)}>{titleCase(envelope.status)}</Badge>
+          </div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-label">Created</div>
+          <div className="stat-value" style={{ fontSize: '0.9375rem' }}>{formatDate(envelope.created_at)}</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-label">Due Date</div>
+          <div className="stat-value" style={{ fontSize: '0.9375rem', color: isOverdue ? 'var(--danger)' : undefined }}>
+            {envelope.due_date ? formatDate(envelope.due_date) : '—'}
+          </div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-label">Completion</div>
+          <div className="stat-value">{pct}%</div>
+          <div style={{ marginTop: '0.5rem', height: 6, background: 'var(--border)', borderRadius: 3, overflow: 'hidden' }}>
+            <div style={{ height: '100%', width: `${pct}%`, background: 'var(--primary)' }} />
+          </div>
+        </div>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.2fr) minmax(0,0.8fr)', gap: '1.5rem' }}>
+        {/* Left column */}
+        <div className="flex flex-col gap-4">
+          {/* Envelope info card */}
+          <div className="card" style={{ padding: '1.25rem' }}>
+            <div className="section-title" style={{ marginBottom: '1rem' }}>Envelope Information</div>
+            <div className="detail-row">
+              <span className="detail-label">Name</span>
+              <span className="detail-value">{envelope.name}</span>
+            </div>
+            {envelope.template && (
+              <div className="detail-row">
+                <span className="detail-label">Template</span>
+                <span className="detail-value">{envelope.template}</span>
+              </div>
+            )}
+            {envelope.message && (
+              <div className="detail-row">
+                <span className="detail-label">Message</span>
+                <span className="detail-value" style={{ whiteSpace: 'pre-line' }}>{envelope.message}</span>
+              </div>
+            )}
+            <div className="detail-row">
+              <span className="detail-label">Created</span>
+              <span className="detail-value">{formatDateTime(envelope.created_at)}</span>
+            </div>
+            {envelope.sent_at && (
+              <div className="detail-row">
+                <span className="detail-label">Sent</span>
+                <span className="detail-value">{formatDateTime(envelope.sent_at)}</span>
+              </div>
+            )}
+            {envelope.completed_at && (
+              <div className="detail-row">
+                <span className="detail-label">Completed</span>
+                <span className="detail-value">{formatDateTime(envelope.completed_at)}</span>
+              </div>
+            )}
+            {envelope.voided_at && (
+              <div className="detail-row">
+                <span className="detail-label">Voided</span>
+                <span className="detail-value">{formatDateTime(envelope.voided_at)}</span>
+              </div>
+            )}
+            {envelope.void_reason && (
+              <div className="detail-row">
+                <span className="detail-label">Void Reason</span>
+                <span className="detail-value">{envelope.void_reason}</span>
+              </div>
+            )}
+            {envelope.due_date && (
+              <div className="detail-row">
+                <span className="detail-label">Due Date</span>
+                <span className="detail-value" style={{ color: isOverdue ? 'var(--danger)' : undefined }}>
+                  {formatDate(envelope.due_date)}
+                  {isOverdue && ' (Overdue)'}
+                </span>
+              </div>
+            )}
+          </div>
+
+          {/* Documents card */}
+          {documents.length > 0 && (
+            <div className="card" style={{ padding: '1.25rem' }}>
+              <div className="section-title" style={{ marginBottom: '1rem' }}>Documents ({documents.length})</div>
+              {documents.map((doc, i) => (
+                <div
+                  key={i}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.75rem',
+                    padding: '0.625rem 0',
+                    borderBottom: i < documents.length - 1 ? '1px solid var(--border)' : 'none',
+                  }}
+                >
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ color: 'var(--text-muted)', flexShrink: 0 }}>
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                    <polyline points="14 2 14 8 20 8"/>
+                  </svg>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: '0.875rem', fontWeight: 500 }}>
+                      {doc.name || doc.filename || doc.original_filename || `Document ${i + 1}`}
+                    </div>
+                    {doc.page_count && (
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{doc.page_count} pages</div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Right column — recipients */}
+        <div>
+          <div className="card" style={{ padding: '1.25rem' }}>
+            <div className="section-title" style={{ marginBottom: '1rem' }}>
+              Recipients {recipientsLoading ? '' : `(${recipients.length})`}
+            </div>
+            {recipientsLoading ? (
+              <Spinner center />
+            ) : recipients.length === 0 ? (
+              <p style={{ fontSize: '0.875rem', color: 'var(--text-muted)', margin: 0 }}>No recipients.</p>
+            ) : (
+              <div>
+                {recipients.map((r, i) => (
+                  <div
+                    key={r.id || i}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'flex-start',
+                      gap: '0.75rem',
+                      padding: '0.75rem 0',
+                      borderBottom: i < recipients.length - 1 ? '1px solid var(--border)' : 'none',
+                    }}
+                  >
+                    <Avatar name={r.name} size={36} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontWeight: 600, fontSize: '0.875rem' }}>{r.name}</div>
+                      <div style={{ fontSize: '0.8125rem', color: 'var(--text-muted)' }}>{r.email}</div>
+                      <div style={{ marginTop: 4, display: 'flex', gap: '0.4rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                        <Badge color="secondary">{titleCase(r.role || 'signer')}</Badge>
+                        <Badge color={statusColor(r.status || 'pending')}>{titleCase(r.status || 'pending')}</Badge>
+                      </div>
+                      {r.signed_at && (
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 4 }}>
+                          Signed {formatDateTime(r.signed_at)}
+                        </div>
+                      )}
+                      {r.viewed_at && !r.signed_at && (
+                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 4 }}>
+                          Viewed {formatDateTime(r.viewed_at)}
+                        </div>
+                      )}
+                      {r.routing_order !== undefined && (
+                        <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 2 }}>
+                          Signing order: {r.routing_order}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Void Modal */}
+      <Modal
+        open={voidModal}
+        onClose={() => setVoidModal(false)}
+        title="Void Envelope"
+        size="sm"
+        footer={
+          <>
+            <button className="btn btn-ghost" onClick={() => setVoidModal(false)}>
+              Cancel
+            </button>
+            <button
+              className="btn btn-danger"
+              onClick={() => voidMutation.mutate(voidReason || 'Voided by admin')}
+              disabled={voidMutation.isPending}
+            >
+              {voidMutation.isPending ? 'Voiding…' : 'Void Envelope'}
+            </button>
+          </>
+        }
+      >
+        <div className="flex flex-col gap-4">
+          <p style={{ margin: 0, fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
+            Voiding this envelope will prevent all signers from completing it. This action cannot be undone.
+          </p>
+          <div className="form-group">
+            <label className="form-label">Reason (optional)</label>
+            <input
+              className="form-input"
+              placeholder="Reason for voiding..."
+              value={voidReason}
+              onChange={e => setVoidReason(e.target.value)}
+            />
+          </div>
+        </div>
+      </Modal>
+
+      {/* Delete Confirm */}
+      <ConfirmDialog
+        open={confirmDelete}
+        onClose={() => setConfirmDelete(false)}
+        onConfirm={() => deleteMutation.mutate()}
+        title="Delete Envelope"
+        message={`Are you sure you want to delete "${envelope.name}"? This removes the record and all related signing data. This action cannot be undone.`}
+        confirmLabel="Delete"
+        danger
+      />
+    </div>
+  );
+}

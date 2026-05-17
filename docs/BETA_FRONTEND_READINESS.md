@@ -1,5 +1,7 @@
 # HanMak Beta Frontend Readiness
 
+> **Scope:** This document covers the **vanilla JS beta prototype** (`hanmak_demo_mock_directory/`). It is the fully live-wired reference implementation used for beta testing and as the design/API reference for the React production frontend (`react-frontend/`). The React frontend architecture and implementation roadmap are documented separately in `docs/REACT_FRONTEND_ARCHITECTURE.md`.
+
 This document describes the current beta posture for `hanmak_demo_mock_directory`.
 
 ## Beta Mode
@@ -65,18 +67,19 @@ The frontend scan still shows these intentional development surfaces:
 - Most high-traffic export actions now download real files, including envelope CSV export. Any remaining clipboard-only exports should be treated as internal utilities and converted before external production use.
 - SDK snippets and API docs are live enough for beta, but the in-browser authenticated API request runner remains deferred.
 
-## Conversion Path To A Production Frontend
+## React Production Frontend Status
 
-Do not rewrite the UI before beta. Stabilize the current vanilla JS shell first.
+The React production frontend (`react-frontend/`) was scaffolded on 2026-05-18. It replaces the conversion path described above with a concrete implementation. Current state:
 
-Recommended sequence:
+- **Done:** Full route map, Axios + JWT client, TanStack Query wrappers, authStore (Zustand), AppShell + Sidebar + Topbar, SettingsLayout with nested routes, Toast context, all 40+ page stubs loading live API data.
+- **In progress:** Full feature parity with the vanilla JS prototype, page by page (see `docs/REACT_FRONTEND_ARCHITECTURE.md` for the phased roadmap).
 
-1. Keep the current frontend as the beta shell.
-2. Remove remaining silent sample fallbacks from enabled user workflows.
-3. Add a small CI check for `node --check hanmak_demo_mock_directory/*.js`.
-4. Keep feature gating controlled by Release Control.
-5. After beta feedback, migrate module-by-module into Vite/React or Vue.
-6. Start with shared API client, auth shell, routing, layout, and design tokens.
-7. Move high-traffic modules first: Dashboard, Inbox, Envelopes, Templates, Form Builder, File Library, Public Signing.
+### Retirement Criteria for the Vanilla JS Prototype
 
-The main risk in rewriting now is losing the live workflow coverage already built into the current shell.
+`hanmak_demo_mock_directory/` will be retired from active serving when:
+
+1. React Phase 3 (Documents + Audit Trail + Evidence Bundles) is complete.
+2. The React frontend passes the same Docker click-through QA checklist that the vanilla JS frontend passed.
+3. The React public signing flow (`/sign/:token`) is fully tested on desktop and mobile.
+
+Until then, the vanilla JS beta remains the live reference at `http://127.0.0.1:8080/mock/` and should be kept updated when backend API changes occur.

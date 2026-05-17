@@ -4,11 +4,12 @@ This guide explains how HanMak is structured, how to run it, how to test it, and
 
 ## 1. Project Structure
 
-HanMak has two main parts:
+HanMak has three main parts:
 
 ```text
 backend/                    Django + DRF API
-hanmak_demo_mock_directory/  Vanilla JS mock/live frontend
+react-frontend/             React 18 production frontend (Vite + TanStack Query + Zustand)
+hanmak_demo_mock_directory/  Vanilla JS beta prototype (fully live-wired reference)
 docs/                       Application documentation
 ```
 
@@ -42,7 +43,39 @@ compliance    Legal holds, retention, data residency, compliance exports
 billing       Plans, subscriptions, usage, invoices, payment portal sessions, license
 ```
 
-## 2. Running Locally Without Docker
+## 2. Running the React Frontend
+
+```bash
+cd react-frontend
+cp .env.example .env     # VITE_API_BASE_URL defaults to empty (uses Vite proxy)
+npm install
+npm run dev              # http://localhost:5173
+```
+
+The Vite dev server proxies `/api` and `/media` to the Django backend at `http://127.0.0.1:8003`. Start the backend first (see section 3).
+
+**Production build:**
+```bash
+npm run build            # Output: react-frontend/dist/
+```
+
+Serve `dist/` from Nginx at `/` and proxy `/api/` to Gunicorn (see `docs/REACT_FRONTEND_ARCHITECTURE.md` for Nginx config).
+
+Key source files:
+
+```text
+src/router.jsx           All routes — matches every vanilla JS page ID
+src/api/client.js        Axios + JWT attach + 401-refresh interceptors
+src/api/endpoints.js     Central EP constant registry (~80 API paths)
+src/hooks/useApi.js      useApiQuery + useApiMutation wrappers
+src/store/authStore.js   Zustand — user, org, JWT lifecycle
+src/components/layout/   AppShell, AuthGuard, Sidebar, Topbar
+src/pages/               One component per route
+```
+
+See `docs/REACT_FRONTEND_ARCHITECTURE.md` for the full guide.
+
+## 3. Running Locally Without Docker (Backend)
 
 ```bash
 cd backend
@@ -52,13 +85,14 @@ python manage.py seed_demo
 python manage.py runserver 127.0.0.1:8003
 ```
 
-Open the mock frontend through a static server or Nginx. The preferred Docker/Nginx URL is:
+Then start the React frontend (section 2) or the vanilla JS beta via Nginx:
 
 ```text
-http://127.0.0.1:8080/mock/
+http://127.0.0.1:8003/mock/   # Direct (no Nginx)
+http://127.0.0.1:8080/mock/   # Via Docker/Nginx
 ```
 
-For beta testing, `hanmak_demo_mock_directory/beta-config.js` disables demo auto-login and placeholder documents by default. See `docs/BETA_FRONTEND_READINESS.md` before inviting testers.
+For beta testing the vanilla JS frontend, see `docs/BETA_FRONTEND_READINESS.md`.
 
 Demo login:
 
@@ -66,7 +100,7 @@ Demo login:
 admin / admin123
 ```
 
-## 3. Running With Docker
+## 4. Running With Docker
 
 From the repo root:
 
@@ -86,7 +120,7 @@ Mailhog:             http://127.0.0.1:8025/
 MinIO:               http://127.0.0.1:9001/
 ```
 
-## 4. Frontend Architecture
+## 5. Frontend Architecture
 
 The mock uses a simple page registry:
 
@@ -111,7 +145,7 @@ hanmakApi('/envelopes/')
 
 It automatically attaches JWT access tokens and attempts a refresh on `401`.
 
-## 5. Release Control And Feature Gating
+## 6. Release Control And Feature Gating
 
 Release controls are stored in `configcenter.FeatureFlag`.
 
