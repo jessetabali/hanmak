@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { useApiQuery, useApiMutation } from '../../hooks/useApi';
 import { apiClient } from '../../api/client';
 import { EP } from '../../api/endpoints';
@@ -97,7 +97,25 @@ function fieldKey(field, index) {
 export default function FormBuilder() {
   const { templateId } = useParams();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const docParam = searchParams.get('doc'); // specific document ID passed from template creation
   const toast = useToast();
+
+  // Gap #4 — guard: builder requires an existing template ID
+  if (!templateId) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '60vh', gap: '1rem', textAlign: 'center' }}>
+        <div style={{ fontSize: '2.5rem' }}>🛠</div>
+        <div style={{ fontWeight: 700, fontSize: '1.125rem' }}>No template selected</div>
+        <p style={{ color: 'var(--text-muted)', maxWidth: 360, margin: 0, fontSize: '0.875rem' }}>
+          The Form Builder requires an existing template. Create a new template from the Templates page first, then open it here.
+        </p>
+        <button className="btn btn-primary" onClick={() => navigate('/templates')}>
+          Go to Templates
+        </button>
+      </div>
+    );
+  }
 
   // ── State ──────────────────────────────────────────────────────────────────
   const [parties, setParties] = useState([
@@ -119,6 +137,7 @@ export default function FormBuilder() {
   // Drag state kept in ref to avoid re-renders
   const dragRef = useRef({ active: false, fieldIdx: null, startX: 0, startY: 0, origX: 0, origY: 0 });
   const pageRefs = useRef([]);
+  const loadedDocIdRef = useRef(null); // ID of the document currently loaded on the canvas
 
   // ── Data fetching ──────────────────────────────────────────────────────────
   const { data: templateData } = useApiQuery(
@@ -135,11 +154,19 @@ export default function FormBuilder() {
     { enabled: !!templateId },
   );
 
+  // If a specific doc ID was passed in the URL (?doc=X), fetch it directly;
+  // otherwise load all documents and pick the first (legacy behaviour).
+  const { data: specificDocData } = useApiQuery(
+    ['document', docParam],
+    docParam ? EP.DOCUMENT(docParam) : null,
+    {},
+    { enabled: !!docParam },
+  );
   const { data: documentsData } = useApiQuery(
     ['documents', templateId],
     EP.DOCUMENTS,
     {},
-    { enabled: !!templateId },
+    { enabled: !!templateId && !docParam },
   );
 
   // ── Load template data ─────────────────────────────────────────────────────
@@ -176,10 +203,13 @@ export default function FormBuilder() {
 
   // ── Render document pages on mount ────────────────────────────────────────
   useEffect(() => {
-    if (!documentsData) return;
-    const docs = documentsData.results || documentsData;
-    const doc = docs[0];
+    // Prefer the specifically-requested document; fall back to first in list
+    const doc = specificDocData || ((() => {
+      const docs = documentsData?.results ?? (Array.isArray(documentsData) ? documentsData : null);
+      return docs?.[0] ?? null;
+    })());
     if (!doc) return;
+    loadedDocIdRef.current = doc.id;
     // If document already has rendered pages, use them directly
     if (doc.pages?.length && doc.pages.some((p) => p.image_url)) {
       const imgs = doc.pages
@@ -211,7 +241,7 @@ export default function FormBuilder() {
         toast.error('Could not render document pages: ' + (err.response?.data?.detail || err.message));
       })
       .finally(() => setLoadingPages(false));
-  }, [documentsData]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [documentsData, specificDocData]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Save mutation ──────────────────────────────────────────────────────────
   const saveMutation = useApiMutation(
@@ -380,6 +410,10 @@ export default function FormBuilder() {
       toast.error('Add at least one field before saving');
       return;
     }
+    if (!loadedDocIdRef.current) {
+      toast.error('No document loaded — upload a PDF first via the Documents page');
+      return;
+    }
     setSaving(true);
     try {
       const serialized = serializeFields();
@@ -391,6 +425,7 @@ export default function FormBuilder() {
       }));
       await saveMutation.mutateAsync({
         name: templateName,
+        document: loadedDocIdRef.current,
         parties: partyPayload,
         form_schema: {
           source: 'form-builder',
@@ -651,11 +686,20 @@ export default function FormBuilder() {
                 <div style={{ fontWeight: 700, fontSize: '1rem', color: 'var(--text-primary)', marginBottom: 4 }}>
                   No document loaded
                 </div>
-                <div style={{ fontSize: '0.8125rem', color: 'var(--text-muted)' }}>
-                  This template has no document yet. Fields can still be placed on the blank canvas.
+                <div style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', maxWidth: 380 }}>
+                  This template has no document associated yet. Upload a PDF in the Documents library, then come back and it will appear here as the canvas background.
                 </div>
-                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 4 }}>
-                  Tip: Upload a document from the Documents library before building.
+                <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
+                  <button
+                    className="btn btn-primary btn-sm"
+                    onClick={() => navigate('/documents')}
+                    style={{ fontSize: '0.8125rem' }}
+                  >
+                    Go to Documents →
+                  </button>
+                  <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', alignSelf: 'center' }}>
+                    or place fields on the blank canvas below
+                  </span>
                 </div>
               </div>
               {/* Blank canvas page so fields can still be placed */}

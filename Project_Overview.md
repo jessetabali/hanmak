@@ -4,17 +4,25 @@ HanMak is a feature-complete enterprise document-signing platform — think Docu
 
 ---
 
-## React Frontend (`react-frontend/`) — Production Target
+## React Frontend (`react-frontend/`) — Production Frontend
 
 Vite 5 + React 18 + React Router v6 + TanStack Query v5 + Zustand + Axios.
 
-This is the production frontend. It uses the same Django/DRF backend as the vanilla JS prototype and provides a component-based, maintainable implementation of every page in the platform.
+This is the production frontend. All 44 pages are fully implemented and live-wired to the Django/DRF backend (~22,000 lines). It replaces the vanilla JS prototype for all active development.
 
-See `docs/REACT_FRONTEND_ARCHITECTURE.md` for the full architecture guide, route map, data-fetching conventions, and implementation roadmap.
+See `docs/REACT_FRONTEND_ARCHITECTURE.md` for the full architecture guide, route map, data-fetching conventions, known bugs fixed, and feature parity gap list.
 
-**Quick start:**
+**Dev server (Docker):**
+```bash
+docker compose -f docker-compose.dev.yml up
+# React frontend: http://127.0.0.1:8080/
+# Vanilla JS beta: http://127.0.0.1:8080/mock/
+```
+
+**Standalone:**
 ```bash
 cd react-frontend && npm install && npm run dev
+# http://localhost:5173/
 ```
 
 ---
@@ -97,9 +105,9 @@ GET requests are gated by object-level grants; mutations require `admin` or `man
 
 ## Integration State
 
-The vast majority of the surface area is live-wired. See `MOCK_ALIGNMENT.md` for the full status.
+The vast majority of the surface area is live-wired in both the vanilla JS prototype and the React frontend. See `MOCK_ALIGNMENT.md` for vanilla JS alignment detail. See `docs/REACT_FRONTEND_ARCHITECTURE.md` for React frontend hookup status and feature parity gaps.
 
-**Fully wired:**
+**Fully wired (both frontends):**
 - Users, Organisations, Teams, Roles & Permissions (including delete)
 - Envelopes, Templates, Form Builder, Documents, Public Signing
 - Workflow Builder, Approvals, Audit Trail, Evidence Bundles
@@ -130,7 +138,8 @@ Detailed guides:
 - Full tenant API suite is green: `accounts.tests.TenantScopedAPITests` (`91 tests OK`).
 - Public invitation accept/inspect, envelope send readiness, signing, payment webhooks, search ranking, deployment readiness, release-gated admin flows, and tenant/RBAC guards are covered in tests.
 - Signed PDF field-placement bug resolved 2026-05-18: three-layer fix across `evidence/pdf.py` (overlay canvas now uses source page mediabox instead of DocumentPage dimensions), `form-builder.js` (calls `render_pages/` after document upload so page images exist for the primary renderer), and `live-wiring.js` (signer field geometry scales `page_height` by the same ratio as X/Y coordinates).
-- Next checkpoint is Docker click-through QA through `http://127.0.0.1:8080/mock/` to verify every browser-visible action against the Nginx-proxied stack.
+- React frontend fully implemented 2026-05-18: all 44 pages live-wired, all critical integration bugs fixed (auth endpoints, blob download, organization FK, toast shortcuts, evidence bundle create flow).
+- Next checkpoint is Docker click-through QA through `http://127.0.0.1:8080/` (React frontend) to verify every browser-visible action against the Nginx-proxied stack.
 
 **Partially wired / production polish remaining:**
 - Release Control now gates the mock frontend and selected backend endpoints directly through `feature_flag_key` checks on org-scoped viewsets and explicit APIView checks.

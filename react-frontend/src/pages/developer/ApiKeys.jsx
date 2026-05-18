@@ -24,17 +24,17 @@ const ALL_SCOPES = [
   'admin:all',
 ];
 
-function SecretRevealModal({ secret, title, onClose }) {
+function copyToClipboard(text, toast) {
+  navigator.clipboard.writeText(text).then(() => toast.success('Copied'));
+}
+
+function SecretRevealModal({ secret, name, title, onClose }) {
   const toast = useToast();
-  const copy = () => {
-    navigator.clipboard.writeText(secret);
-    toast.success('Key copied to clipboard');
-  };
   return (
     <Modal
       open
       onClose={onClose}
-      title={title}
+      title={title || 'API Key Created!'}
       size="lg"
       footer={
         <button className="btn btn-primary" onClick={onClose}>
@@ -43,8 +43,14 @@ function SecretRevealModal({ secret, title, onClose }) {
       }
     >
       <div className="alert alert-warning" style={{ marginBottom: '1rem' }}>
-        <strong>Copy this key now.</strong> It will not be shown again after you close this dialog.
+        <strong>Copy this key now.</strong> This is the only time this key will be shown.
       </div>
+      {name && (
+        <div className="form-group">
+          <label className="form-label">Key Name</label>
+          <div style={{ fontSize: '0.875rem', fontWeight: 600 }}>{name}</div>
+        </div>
+      )}
       <div
         style={{
           display: 'flex',
@@ -59,7 +65,10 @@ function SecretRevealModal({ secret, title, onClose }) {
         <code className="mono" style={{ flex: 1, fontSize: '0.8125rem' }}>
           {secret}
         </code>
-        <button className="btn btn-primary btn-sm" onClick={copy}>
+        <button
+          className="btn btn-primary btn-sm"
+          onClick={() => copyToClipboard(secret, toast)}
+        >
           Copy
         </button>
       </div>
@@ -77,18 +86,23 @@ function CreateKeyModal({ onClose, onCreated }) {
     {
       invalidateKeys: ['api-keys'],
       onSuccess: (res) => {
-        onCreated(res.data?.key || res.data?.secret || '');
+        const secret = res.data?.key || res.data?.secret || '';
+        onCreated(secret, name.trim());
       },
       onError: (e) => toast.error(e.response?.data?.detail || e.message),
     }
   );
 
-  const toggleScope = (s) =>
-    setScopes((prev) => (prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s]));
+  const toggleScope = useCallback((s) =>
+    setScopes((prev) => (prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s])), []);
 
   const submit = () => {
     if (!name.trim()) return toast.error('Key name is required');
-    mutation.mutate({ name: name.trim(), scopes });
+    mutation.mutate({
+      name: name.trim(),
+      scopes,
+      organization: Number(localStorage.getItem('HANMAK_ORGANIZATION_ID')),
+    });
   };
 
   return (
@@ -114,13 +128,17 @@ function CreateKeyModal({ onClose, onCreated }) {
           placeholder="e.g. Production Backend Integration"
           value={name}
           onChange={(e) => setName(e.target.value)}
+          autoFocus
         />
       </div>
       <div className="form-group">
         <label className="form-label">Scopes</label>
         <div className="flex flex-col gap-2" style={{ fontSize: '0.8125rem' }}>
           {ALL_SCOPES.map((s) => (
-            <label key={s} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}>
+            <label
+              key={s}
+              style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer' }}
+            >
               <input type="checkbox" checked={scopes.includes(s)} onChange={() => toggleScope(s)} />
               <code style={{ fontSize: '0.75rem', color: 'var(--primary)' }}>{s}</code>
             </label>
@@ -147,14 +165,14 @@ function EditScopesModal({ apiKey, onClose }) {
     }
   );
 
-  const toggleScope = (s) =>
-    setScopes((prev) => (prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s]));
+  const toggleScope = useCallback((s) =>
+    setScopes((prev) => (prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s])), []);
 
   return (
     <Modal
       open
       onClose={onClose}
-      title="Edit Scopes"
+      title={`Edit Scopes — ${apiKey.name}`}
       footer={
         <>
           <button className="btn btn-ghost" onClick={onClose}>
@@ -165,14 +183,24 @@ function EditScopesModal({ apiKey, onClose }) {
             onClick={() => mutation.mutate({ scopes })}
             disabled={mutation.isPending}
           >
-            Save Scopes
+            {mutation.isPending ? 'Saving…' : 'Save Scopes'}
           </button>
         </>
       }
     >
       <div className="flex flex-col gap-2" style={{ fontSize: '0.8125rem' }}>
         {ALL_SCOPES.map((s) => (
-          <label key={s} style={{ display: 'flex', alignItems: 'center', gap: '0.625rem', cursor: 'pointer', padding: '0.375rem', borderRadius: '5px' }}>
+          <label
+            key={s}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '0.625rem',
+              cursor: 'pointer',
+              padding: '0.375rem',
+              borderRadius: '5px',
+            }}
+          >
             <input type="checkbox" checked={scopes.includes(s)} onChange={() => toggleScope(s)} />
             <code style={{ fontSize: '0.75rem', color: 'var(--primary)' }}>{s}</code>
           </label>
@@ -188,11 +216,15 @@ export default function ApiKeys() {
   const keys = data?.results ?? data ?? [];
 
   const [createModal, setCreateModal] = useState(false);
-  const [newKeySecret, setNewKeySecret] = useState(null);
+  const [newKeyReveal, setNewKeyReveal] = useState({ open: false, secret: '', name: '' });
   const [editModal, setEditModal] = useState(null);
   const [confirmRevoke, setConfirmRevoke] = useState(null);
   const [rotateConfirm, setRotateConfirm] = useState(null);
-  const [rotateSecret, setRotateSecret] = useState(null);
+  const [rotateReveal, setRotateReveal] = useState({ open: false, secret: '', name: '' });
+
+  const total = keys.length;
+  const active = keys.filter((k) => k.status === 'active' || k.is_active !== false).length;
+  const revoked = keys.filter((k) => k.status === 'revoked' || k.is_active === false).length;
 
   const revokeMutation = useApiMutation(
     (id) => apiClient.post(EP.API_KEY_REVOKE(id)),
@@ -207,14 +239,17 @@ export default function ApiKeys() {
     (id) => apiClient.post(EP.API_KEY_ROTATE(id)),
     {
       invalidateKeys: ['api-keys'],
-      onSuccess: (res) => setRotateSecret(res.data?.key || res.data?.secret || ''),
+      onSuccess: (res, id) => {
+        const key = keys.find((k) => k.id === id);
+        setRotateReveal({ open: true, secret: res.data?.key || res.data?.secret || '', name: key?.name || '' });
+      },
       onError: (e) => toast.error(e.response?.data?.detail || e.message),
     }
   );
 
-  const handleCreated = useCallback((secret) => {
+  const handleCreated = useCallback((secret, name) => {
     setCreateModal(false);
-    setNewKeySecret(secret);
+    setNewKeyReveal({ open: true, secret, name });
   }, []);
 
   if (isLoading) return <Spinner center />;
@@ -231,121 +266,137 @@ export default function ApiKeys() {
         </button>
       </div>
 
+      {/* Stats */}
+      <div className="stats-grid" style={{ '--cols': 3, marginBottom: '1.5rem' }}>
+        {[
+          ['Total', total, 'secondary'],
+          ['Active', active, 'success'],
+          ['Revoked', revoked, 'danger'],
+        ].map(([label, value, color]) => (
+          <div key={label} className="stat-card">
+            <div className="stat-label">{label}</div>
+            <div className="stat-value" style={{ color: `var(--${color === 'secondary' ? 'text-primary' : color})` }}>
+              {value}
+            </div>
+          </div>
+        ))}
+      </div>
+
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 300px', gap: '1.5rem' }}>
-        <div className="flex flex-col gap-4">
+        {/* Keys table */}
+        <div className="card" style={{ padding: 0 }}>
           {keys.length === 0 ? (
-            <EmptyState title="No API Keys" message="Create an API key to get started with programmatic access." />
+            <div style={{ padding: '2rem' }}>
+              <EmptyState title="No API Keys" message="Create an API key to get started with programmatic access." />
+            </div>
           ) : (
-            keys.map((k) => {
-              const masked = (k.key_prefix || k.prefix || 'hm_???') + '••••••••••••••••••••';
-              const scopes = Array.isArray(k.scopes) ? k.scopes : [];
-              const isRevoked = k.status === 'revoked' || k.is_active === false;
-              return (
-                <div key={k.id} className="card" style={{ padding: '1.25rem', opacity: isRevoked ? 0.7 : 1 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1rem' }}>
-                    <div>
-                      <div style={{ fontWeight: 700, fontSize: '0.9375rem', marginBottom: '4px', textDecoration: isRevoked ? 'line-through' : 'none' }}>
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Key Prefix</th>
+                  <th>Scopes</th>
+                  <th>Created</th>
+                  <th>Last Used</th>
+                  <th>Status</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {keys.map((k) => {
+                  const masked = (k.key_prefix || k.prefix || 'hm_???') + '••••••••••••';
+                  const scopes = Array.isArray(k.scopes) ? k.scopes : [];
+                  const isRevoked = k.status === 'revoked' || k.is_active === false;
+                  return (
+                    <tr key={k.id} style={{ opacity: isRevoked ? 0.5 : 1 }}>
+                      <td style={{ fontWeight: 600, textDecoration: isRevoked ? 'line-through' : 'none' }}>
                         {k.name}
-                      </div>
-                      <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-                        <Badge color={isRevoked ? 'danger' : 'success'}>{isRevoked ? 'Revoked' : 'Active'}</Badge>
-                        <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                          Created {k.created_at ? formatDate(k.created_at) : '—'}
-                        </span>
-                      </div>
-                    </div>
-                    <div className="flex gap-1">
-                      {!isRevoked && (
-                        <>
-                          <button className="btn btn-ghost btn-sm" title="Rotate" onClick={() => setRotateConfirm(k)}>
-                            ↻
-                          </button>
-                          <button className="btn btn-ghost btn-sm" title="Edit Scopes" onClick={() => setEditModal(k)}>
-                            ✏
-                          </button>
-                          <button
-                            className="btn btn-ghost btn-sm"
-                            title="Revoke"
-                            style={{ color: 'var(--danger)' }}
-                            onClick={() => setConfirmRevoke(k)}
-                          >
-                            🗑
-                          </button>
-                        </>
-                      )}
-                    </div>
-                  </div>
-
-                  <div
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '0.5rem',
-                      padding: '0.625rem 0.75rem',
-                      background: 'var(--bg-secondary)',
-                      borderRadius: '7px',
-                      marginBottom: '1rem',
-                    }}
-                  >
-                    <code className="mono" style={{ flex: 1, fontSize: '0.8125rem', color: 'var(--text-muted)' }}>
-                      {masked}
-                    </code>
-                    <button
-                      className="btn btn-ghost btn-sm"
-                      style={{ padding: '2px 8px', fontSize: '0.75rem' }}
-                      onClick={() => {
-                        navigator.clipboard.writeText(masked);
-                        toast.success('Prefix copied (full key not stored)');
-                      }}
-                    >
-                      Copy
-                    </button>
-                  </div>
-
-                  <div
-                    style={{
-                      display: 'grid',
-                      gridTemplateColumns: 'repeat(3, 1fr)',
-                      gap: '0.75rem',
-                      marginBottom: '1rem',
-                      textAlign: 'center',
-                    }}
-                  >
-                    {[
-                      ['Last Used', k.last_used_at ? formatDate(k.last_used_at) : 'Never'],
-                      ['Scopes', scopes.length],
-                      ['Status', k.status || (isRevoked ? 'revoked' : 'active')],
-                    ].map(([l, v]) => (
-                      <div key={l} style={{ padding: '0.5rem', background: 'var(--bg-secondary)', borderRadius: '6px' }}>
-                        <div style={{ fontWeight: 600, fontSize: '0.875rem' }}>{v}</div>
-                        <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{l}</div>
-                      </div>
-                    ))}
-                  </div>
-
-                  <div>
-                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.375rem' }}>Scopes</div>
-                    <div className="flex" style={{ flexWrap: 'wrap', gap: '4px' }}>
-                      {scopes.length === 0 ? (
-                        <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>No scopes assigned</span>
-                      ) : (
-                        scopes.map((s) => (
-                          <code
-                            key={s}
-                            style={{ fontSize: '0.72rem', background: 'var(--bg-secondary)', padding: '2px 6px', borderRadius: '4px', color: 'var(--primary)' }}
-                          >
-                            {s}
+                      </td>
+                      <td>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
+                          <code className="mono" style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                            {masked}
                           </code>
-                        ))
-                      )}
-                    </div>
-                  </div>
-                </div>
-              );
-            })
+                          {!isRevoked && (
+                            <button
+                              className="btn btn-ghost btn-sm"
+                              style={{ padding: '1px 6px', fontSize: '0.7rem' }}
+                              onClick={() => copyToClipboard(masked, toast)}
+                            >
+                              Copy
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                      <td>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '3px', maxWidth: '200px' }}>
+                          {scopes.length === 0 ? (
+                            <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>None</span>
+                          ) : (
+                            scopes.map((s) => (
+                              <code
+                                key={s}
+                                style={{
+                                  fontSize: '0.68rem',
+                                  background: 'var(--bg-secondary)',
+                                  padding: '1px 5px',
+                                  borderRadius: '3px',
+                                  color: 'var(--primary)',
+                                }}
+                              >
+                                {s}
+                              </code>
+                            ))
+                          )}
+                        </div>
+                      </td>
+                      <td style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
+                        {k.created_at ? formatDate(k.created_at) : '—'}
+                      </td>
+                      <td style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
+                        {k.last_used_at ? formatDate(k.last_used_at) : 'Never'}
+                      </td>
+                      <td>
+                        <Badge color={isRevoked ? 'danger' : 'success'}>
+                          {isRevoked ? 'Revoked' : 'Active'}
+                        </Badge>
+                      </td>
+                      <td>
+                        {!isRevoked && (
+                          <div className="flex gap-1">
+                            <button
+                              className="btn btn-ghost btn-sm"
+                              title="Edit Scopes"
+                              onClick={() => setEditModal(k)}
+                            >
+                              Edit
+                            </button>
+                            <button
+                              className="btn btn-ghost btn-sm"
+                              title="Rotate"
+                              onClick={() => setRotateConfirm(k)}
+                            >
+                              Rotate
+                            </button>
+                            <button
+                              className="btn btn-danger btn-sm"
+                              title="Revoke"
+                              onClick={() => setConfirmRevoke(k)}
+                            >
+                              Revoke
+                            </button>
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           )}
         </div>
 
+        {/* Sidebar */}
         <div className="flex flex-col gap-4">
           <div className="card" style={{ padding: '1.25rem' }}>
             <div style={{ fontWeight: 600, marginBottom: '0.75rem' }}>Available Scopes</div>
@@ -363,8 +414,19 @@ export default function ApiKeys() {
                 ['audit:read', 'Read audit trail'],
                 ['admin:all', 'Full admin access'],
               ].map(([scope, desc]) => (
-                <div key={scope} style={{ padding: '0.375rem 0', borderBottom: '1px solid var(--border)' }}>
-                  <code style={{ fontSize: '0.72rem', background: 'var(--bg-secondary)', padding: '1px 5px', borderRadius: '3px', color: 'var(--primary)' }}>
+                <div
+                  key={scope}
+                  style={{ padding: '0.375rem 0', borderBottom: '1px solid var(--border)' }}
+                >
+                  <code
+                    style={{
+                      fontSize: '0.72rem',
+                      background: 'var(--bg-secondary)',
+                      padding: '1px 5px',
+                      borderRadius: '3px',
+                      color: 'var(--primary)',
+                    }}
+                  >
                     {scope}
                   </code>
                   <div style={{ color: 'var(--text-muted)', marginTop: '2px' }}>{desc}</div>
@@ -384,7 +446,7 @@ export default function ApiKeys() {
                 'Monitor usage for anomalies',
               ].map((tip) => (
                 <div key={tip} style={{ display: 'flex', gap: '0.5rem' }}>
-                  🛡 {tip}
+                  <span>&#x1F6E1;</span> {tip}
                 </div>
               ))}
             </div>
@@ -392,16 +454,18 @@ export default function ApiKeys() {
         </div>
       </div>
 
+      {/* Modals */}
       {createModal && (
         <CreateKeyModal onClose={() => setCreateModal(false)} onCreated={handleCreated} />
       )}
 
-      {newKeySecret && (
+      {newKeyReveal.open && (
         <SecretRevealModal
-          secret={newKeySecret}
+          secret={newKeyReveal.secret}
+          name={newKeyReveal.name}
           title="API Key Created!"
           onClose={() => {
-            setNewKeySecret(null);
+            setNewKeyReveal({ open: false, secret: '', name: '' });
             refetch();
           }}
         />
@@ -429,13 +493,14 @@ export default function ApiKeys() {
                   setRotateConfirm(null);
                 }}
               >
-                Rotate Key
+                {rotateMutation.isPending ? 'Rotating…' : 'Rotate Key'}
               </button>
             </>
           }
         >
           <div className="alert alert-warning" style={{ marginBottom: '1rem' }}>
-            <strong>This will invalidate the current key immediately.</strong> Update all services using this key before rotating.
+            <strong>A new secret will be generated. The old key stops working immediately.</strong> Update
+            all services using this key before rotating.
           </div>
           <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
             Rotating <strong>{rotateConfirm.name}</strong>. A new key will be issued with the same scopes.
@@ -443,12 +508,13 @@ export default function ApiKeys() {
         </Modal>
       )}
 
-      {rotateSecret && (
+      {rotateReveal.open && (
         <SecretRevealModal
-          secret={rotateSecret}
+          secret={rotateReveal.secret}
+          name={rotateReveal.name}
           title="Key Rotated!"
           onClose={() => {
-            setRotateSecret(null);
+            setRotateReveal({ open: false, secret: '', name: '' });
             refetch();
           }}
         />

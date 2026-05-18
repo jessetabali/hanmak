@@ -18,8 +18,13 @@ export function ToastProvider({ children }) {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
+  const success = useCallback((msg, d) => showToast(msg, 'success', d), [showToast]);
+  const error   = useCallback((msg, d) => showToast(msg, 'error',   d), [showToast]);
+  const warning = useCallback((msg, d) => showToast(msg, 'warning', d), [showToast]);
+  const info    = useCallback((msg, d) => showToast(msg, 'info',    d), [showToast]);
+
   return (
-    <ToastContext.Provider value={{ showToast, dismiss }}>
+    <ToastContext.Provider value={{ showToast, dismiss, success, error, warning, info }}>
       {children}
       <div
         aria-live="polite"

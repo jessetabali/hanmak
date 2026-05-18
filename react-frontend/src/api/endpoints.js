@@ -3,8 +3,8 @@
 
 export const EP = {
   // Auth
-  TOKEN_OBTAIN: '/token/',
-  TOKEN_REFRESH: '/token/refresh/',
+  TOKEN_OBTAIN: '/auth/login/',
+  TOKEN_REFRESH: '/auth/refresh/',
 
   // Accounts
   USERS: '/users/',
@@ -40,6 +40,7 @@ export const EP = {
   ENVELOPE_SUMMARY: '/envelopes/summary/',
   RECIPIENTS: '/recipients/',
   RECIPIENT: (id) => `/recipients/${id}/`,
+  RECIPIENT_REMIND: (id) => `/recipients/${id}/remind/`,
 
   // Templates
   TEMPLATES: '/templates/',
@@ -59,6 +60,7 @@ export const EP = {
   DOCUMENT_PREPARE: (id) => `/documents/${id}/prepare-for-builder/`,
   DOCUMENT_DUPLICATE: (id) => `/documents/${id}/duplicate/`,
   STORED_FILES: '/stored-files/',
+  ENVELOPE_DOCUMENTS: '/envelope-documents/',
 
   // Signing
   SIGNING_SESSIONS: '/signing-sessions/',

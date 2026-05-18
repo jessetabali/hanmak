@@ -69,17 +69,20 @@ The frontend scan still shows these intentional development surfaces:
 
 ## React Production Frontend Status
 
-The React production frontend (`react-frontend/`) was scaffolded on 2026-05-18. It replaces the conversion path described above with a concrete implementation. Current state:
+The React production frontend (`react-frontend/`) reached **full implementation** on 2026-05-18. All 44 pages are live-wired to the Django/DRF backend. Current state:
 
-- **Done:** Full route map, Axios + JWT client, TanStack Query wrappers, authStore (Zustand), AppShell + Sidebar + Topbar, SettingsLayout with nested routes, Toast context, all 40+ page stubs loading live API data.
-- **In progress:** Full feature parity with the vanilla JS prototype, page by page (see `docs/REACT_FRONTEND_ARCHITECTURE.md` for the phased roadmap).
+- **Done:** Full route map, Axios + JWT client, TanStack Query wrappers, authStore (Zustand), AppShell + Sidebar + Topbar, SettingsLayout with nested routes, Toast context, all 44 pages fully implemented (~22,000 lines).
+- **Done:** All critical bugs fixed — auth endpoints corrected, blob download pattern for authenticated files, organization FK included on all creates, ToastContext extended with `success`/`error`/`warning`/`info` shortcuts, EvidenceBundle create flow rewritten to envelope-picker model.
+- **In progress:** Feature parity polish — ~24 UI elements present in the vanilla JS prototype but not yet in the React frontend (see `docs/REACT_FRONTEND_ARCHITECTURE.md` for the full gap list).
+
+The React frontend is accessible at `http://127.0.0.1:8080/` (served by Nginx from the Vite dev server in Docker) or `http://localhost:5173/` directly from the Vite HMR server.
 
 ### Retirement Criteria for the Vanilla JS Prototype
 
 `hanmak_demo_mock_directory/` will be retired from active serving when:
 
-1. React Phase 3 (Documents + Audit Trail + Evidence Bundles) is complete.
+1. All High-priority feature parity gaps in the React frontend are resolved.
 2. The React frontend passes the same Docker click-through QA checklist that the vanilla JS frontend passed.
-3. The React public signing flow (`/sign/:token`) is fully tested on desktop and mobile.
+3. The React public signing flow (`/sign/:token`) is fully tested on desktop and mobile widths.
 
 Until then, the vanilla JS beta remains the live reference at `http://127.0.0.1:8080/mock/` and should be kept updated when backend API changes occur.

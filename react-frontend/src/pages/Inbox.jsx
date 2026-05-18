@@ -20,6 +20,7 @@ const TABS = [
   { key: 'all', label: 'All' },
   { key: 'signing', label: 'Signing' },
   { key: 'approvals', label: 'Approvals' },
+  { key: 'tasks', label: 'Tasks' },
   { key: 'snoozed', label: 'Snoozed' },
 ];
 
@@ -28,6 +29,13 @@ const PRIORITY_OPTIONS = [
   { value: 'high', label: 'High' },
   { value: 'medium', label: 'Medium' },
   { value: 'low', label: 'Low' },
+];
+
+const WORK_TYPE_OPTIONS = [
+  { value: '', label: 'All Work Types' },
+  { value: 'sign', label: 'Signing' },
+  { value: 'approve', label: 'Approvals' },
+  { value: 'task', label: 'Failed Tasks' },
 ];
 
 function priorityDotColor(priority) {
@@ -69,6 +77,7 @@ export default function Inbox() {
   const [search, setSearch] = useState('');
   const [searchInput, setSearchInput] = useState('');
   const [priority, setPriority] = useState('');
+  const [workType, setWorkType] = useState('');
   const [page, setPage] = useState(1);
 
   // Selection state
@@ -127,10 +136,17 @@ export default function Inbox() {
     allItems = signing;
   } else if (activeTab === 'approvals') {
     allItems = approvals;
+  } else if (activeTab === 'tasks') {
+    allItems = failedTasks;
   } else if (activeTab === 'snoozed') {
     allItems = snoozedItems;
   } else {
     allItems = [...signing, ...approvals, ...failedTasks];
+  }
+
+  // Apply work type filter
+  if (workType) {
+    allItems = allItems.filter((item) => uiTypeFromItem(item) === workType);
   }
 
   // Tab counts from API
@@ -143,6 +159,7 @@ export default function Inbox() {
     if (key === 'all') return totalActive;
     if (key === 'signing') return signingCount;
     if (key === 'approvals') return approvalsCount;
+    if (key === 'tasks') return counts.failed_tasks ?? failedTasks.length;
     return null;
   };
 
@@ -370,19 +387,29 @@ export default function Inbox() {
           </div>
 
           {/* Toolbar */}
-          <div className="flex gap-2" style={{ marginLeft: 'auto', paddingBottom: '0.75rem' }}>
+          <div className="flex gap-2" style={{ marginLeft: 'auto', paddingBottom: '0.75rem', flexWrap: 'wrap' }}>
             <input
               className="form-input"
               placeholder="Search tasks..."
               value={searchInput}
               onChange={handleSearchChange}
-              style={{ width: '220px' }}
+              style={{ width: '200px' }}
             />
+            <select
+              className="form-input"
+              value={workType}
+              onChange={(e) => { setWorkType(e.target.value); setPage(1); }}
+              style={{ width: '150px' }}
+            >
+              {WORK_TYPE_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
             <select
               className="form-input"
               value={priority}
               onChange={(e) => { setPriority(e.target.value); setPage(1); }}
-              style={{ width: '150px' }}
+              style={{ width: '140px' }}
             >
               {PRIORITY_OPTIONS.map((o) => (
                 <option key={o.value} value={o.value}>{o.label}</option>
@@ -487,9 +514,27 @@ export default function Inbox() {
                     <div style={{ fontWeight: 600, color: 'var(--text-primary)', marginBottom: '0.25rem', fontSize: '0.9375rem' }}>
                       {title}
                     </div>
-                    <div style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', marginBottom: '0.75rem' }}>
+                    <div style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', marginBottom: '0.375rem' }}>
                       {desc}
                     </div>
+                    {(item.fields_remaining != null || item.remaining_fields != null) && (
+                      <div style={{ fontSize: '0.75rem', marginBottom: '0.375rem' }}>
+                        <span
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '0.3rem',
+                            padding: '0.15rem 0.5rem',
+                            borderRadius: 4,
+                            background: 'rgba(79, 142, 247, 0.1)',
+                            color: 'var(--primary)',
+                            fontWeight: 600,
+                          }}
+                        >
+                          {item.fields_remaining ?? item.remaining_fields} field{(item.fields_remaining ?? item.remaining_fields) !== 1 ? 's' : ''} remaining
+                        </span>
+                      </div>
+                    )}
                     <div className="flex" style={{ gap: '1.5rem', fontSize: '0.8rem', color: 'var(--text-muted)', flexWrap: 'wrap' }}>
                       <span>{formatDateTime(item.created_at)}</span>
                       <span style={isOverdue ? { color: 'var(--danger)', fontWeight: 600 } : {}}>

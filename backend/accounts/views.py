@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.auth.hashers import check_password, make_password
 from django.core.exceptions import ValidationError as DjangoValidationError
@@ -119,7 +120,8 @@ class UserViewSet(viewsets.ModelViewSet):
         from messaging.tasks import deliver_email_message_task
 
         recovery, token = self._create_recovery_request(user, request)
-        setup_url = request.build_absolute_uri(f'/mock/?page=setup&token={token}')
+        base = settings.HANMAK_PUBLIC_BASE_URL.rstrip('/')
+        setup_url = f'{base}/account-setup?token={token}'
         subject, body, html_body = render_setup_email(organization=organization, user=user, setup_url=setup_url)
         queued_email = EmailMessage.objects.create(
             organization=organization,
@@ -570,7 +572,8 @@ class OrganizationViewSet(OrganizationScopedQuerySetMixin, viewsets.ModelViewSet
             },
         )
         if contact_email:
-            confirm_url = request.build_absolute_uri(f'/mock/?page=organizations&deletion_token={confirmation_token}&organization={organization.id}')
+            _base = settings.HANMAK_PUBLIC_BASE_URL.rstrip('/')
+            confirm_url = f'{_base}/admin/organizations?deletion_token={confirmation_token}&organization={organization.id}'
             message = EmailMessage.objects.create(
                 organization=organization,
                 kind=EmailMessage.Kind.INVITATION,
@@ -789,7 +792,8 @@ class InvitationViewSet(OrganizationScopedQuerySetMixin, viewsets.ModelViewSet):
         from messaging.models import EmailMessage
         from messaging.tasks import deliver_email_message_task
 
-        accept_url = self.request.build_absolute_uri(f'/mock/?page=setup&invite_token={token}')
+        base = settings.HANMAK_PUBLIC_BASE_URL.rstrip('/')
+        accept_url = f'{base}/accept-invite?token={token}'
         subject = f'Join {invitation.organization.name} on HanMak'
         body = (
             f'Hello {invitation.full_name or invitation.email},\n\n'

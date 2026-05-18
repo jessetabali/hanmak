@@ -1,39 +1,38 @@
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { useApiQuery, useApiMutation } from '../../hooks/useApi';
 import { apiClient } from '../../api/client';
 import { EP } from '../../api/endpoints';
 import { useToast } from '../../hooks/useToast';
 import { formatDateTime } from '../../utils/formatting';
+import Modal from '../../components/ui/Modal';
 import Drawer from '../../components/ui/Drawer';
-import Badge from '../../components/ui/Badge';
+import Badge, { statusColor } from '../../components/ui/Badge';
 import Spinner from '../../components/ui/Spinner';
 import EmptyState from '../../components/ui/EmptyState';
-import Modal from '../../components/ui/Modal';
 
-const TEST_SUITES = [
-  { suite: 'Envelope CRUD', type: 'API' },
-  { suite: 'Signature Placement', type: 'UI' },
-  { suite: 'Template Engine', type: 'API' },
-  { suite: 'Workflow Builder', type: 'UI' },
-  { suite: 'Form Builder', type: 'UI' },
-  { suite: 'Webhook Delivery', type: 'Integration' },
-  { suite: 'OAuth & Auth', type: 'API' },
-  { suite: 'Audit Trail', type: 'API' },
-  { suite: 'SSO / SAML', type: 'Integration' },
-  { suite: 'Email Delivery', type: 'Integration' },
-  { suite: 'Billing & Usage', type: 'API' },
-  { suite: 'Data Residency', type: 'Integration' },
-];
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
-function statusColor(status) {
-  if (!status) return 'secondary';
-  if (status === 'succeeded' || status === 'success') return 'success';
-  if (status === 'failed') return 'danger';
-  if (status === 'running') return 'primary';
+function calcDuration(run) {
+  if (!run.started_at) return '—';
+  const end = run.finished_at || run.ended_at;
+  if (!end) return run.status === 'running' ? 'running…' : '—';
+  const secs = Math.round((new Date(end) - new Date(run.started_at)) / 1000);
+  if (secs < 60) return `${secs}s`;
+  return `${Math.floor(secs / 60)}m ${secs % 60}s`;
+}
+
+function taskStatusColor(status) {
+  const s = (status || '').toLowerCase();
+  if (s === 'succeeded' || s === 'success' || s === 'completed') return 'success';
+  if (s === 'failed') return 'danger';
+  if (s === 'running') return 'primary';
+  if (s === 'queued') return 'warning';
   return 'secondary';
 }
 
-function RunDetailDrawer({ run, onClose, onRerun, onCancel }) {
+// ── Run Detail Drawer ─────────────────────────────────────────────────────────
+
+function RunDetailDrawer({ run, onClose, onRestart, onCancel }) {
   const { data, isLoading } = useApiQuery(
     ['task-run-detail', run?.id],
     EP.TASK_RUN(run?.id),
@@ -41,52 +40,76 @@ function RunDetailDrawer({ run, onClose, onRerun, onCancel }) {
     { enabled: !!run?.id }
   );
 
+  const { data: eventsData, isLoading: eventsLoading } = useApiQuery(
+    ['task-run-events', run?.id],
+    `/task-runs/${run?.id}/events/`,
+    {},
+    { enabled: !!run?.id }
+  );
+
+  const events = eventsData?.results ?? eventsData ?? data?.events ?? [];
+  const detail = data || run;
+
   return (
-    <Drawer open={!!run} onClose={onClose} title={`Run #${run?.id} — ${run?.task_name}`}>
+    <Drawer open={!!run} onClose={onClose} title={`Run #${run?.id} — ${run?.task_name || 'Task'}`} width={500}>
       {isLoading ? (
         <Spinner center />
       ) : (
         <div className="flex flex-col gap-4">
           <div className="card" style={{ padding: '1rem' }}>
-            <div className="flex gap-2" style={{ marginBottom: '0.75rem' }}>
-              <Badge color={statusColor(data?.status)}>{data?.status || run?.status}</Badge>
-              <span style={{ fontSize: '0.8125rem', color: 'var(--text-muted)' }}>Queue: <code>{data?.queue_name || 'default'}</code></span>
+            <div className="flex gap-2" style={{ marginBottom: '0.75rem', flexWrap: 'wrap' }}>
+              <Badge color={taskStatusColor(detail?.status)}>{detail?.status || '—'}</Badge>
+              {detail?.queue_name && (
+                <code style={{ fontSize: '0.75rem', background: 'var(--bg-secondary)', padding: '2px 6px', borderRadius: 3 }}>{detail.queue_name}</code>
+              )}
             </div>
             {[
-              ['Started', data?.started_at ? formatDateTime(data.started_at) : '—'],
-              ['Finished', data?.finished_at ? formatDateTime(data.finished_at) : '—'],
-              ['Worker', data?.result?.worker || '—'],
-            ].map(([l, v]) => (
-              <div key={l} style={{ display: 'flex', justifyContent: 'space-between', padding: '0.375rem 0', borderBottom: '1px solid var(--border)', fontSize: '0.875rem' }}>
-                <span style={{ color: 'var(--text-muted)' }}>{l}</span>
-                <span>{v}</span>
+              ['Task Name', <code className="mono" style={{ fontSize: '0.8rem' }}>{detail?.task_name || '—'}</code>],
+              ['Status', detail?.status || '—'],
+              ['Started', detail?.started_at ? formatDateTime(detail.started_at) : '—'],
+              ['Ended', (detail?.finished_at || detail?.ended_at) ? formatDateTime(detail.finished_at || detail.ended_at) : '—'],
+              ['Duration', calcDuration(detail || {})],
+              ['Worker', detail?.result?.worker || '—'],
+            ].map(([label, value]) => (
+              <div key={label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', padding: '0.375rem 0', borderBottom: '1px solid var(--border)', fontSize: '0.875rem', gap: '1rem' }}>
+                <span style={{ color: 'var(--text-muted)', flexShrink: 0 }}>{label}</span>
+                <span style={{ textAlign: 'right' }}>{value}</span>
               </div>
             ))}
           </div>
 
-          {data?.error_message && (
+          {detail?.error_message && (
             <div className="card" style={{ padding: '1rem', background: '#fef2f2', border: '1px solid var(--danger)' }}>
               <div style={{ fontWeight: 600, color: 'var(--danger)', marginBottom: '0.5rem', fontSize: '0.875rem' }}>Error</div>
-              <code className="mono" style={{ fontSize: '0.8125rem', color: 'var(--danger)', whiteSpace: 'pre-wrap' }}>{data.error_message}</code>
+              <pre className="mono" style={{ fontSize: '0.8125rem', color: 'var(--danger)', whiteSpace: 'pre-wrap', margin: 0 }}>
+                {detail.error_message}
+              </pre>
             </div>
           )}
 
-          {(data?.events || []).length > 0 && (
+          {events.length > 0 && (
             <div className="card" style={{ padding: '1rem' }}>
               <div style={{ fontWeight: 600, marginBottom: '0.5rem', fontSize: '0.875rem' }}>Events</div>
-              <div className="mono" style={{ background: 'var(--bg-secondary)', borderRadius: '6px', padding: '0.75rem', fontSize: '0.75rem', maxHeight: '300px', overflowY: 'auto', whiteSpace: 'pre-wrap' }}>
-                {(data.events || []).map((ev) => `[${formatDateTime(ev.created_at)}] ${ev.event_type?.toUpperCase()} ${ev.message || ''}`).join('\n')}
-              </div>
+              {eventsLoading ? <Spinner /> : (
+                <pre className="mono" style={{ background: 'var(--bg-secondary)', borderRadius: '6px', padding: '0.75rem', fontSize: '0.75rem', maxHeight: '280px', overflowY: 'auto', whiteSpace: 'pre-wrap', margin: 0 }}>
+                  {events.map((ev) => `[${formatDateTime(ev.created_at)}] ${(ev.event_type || '').toUpperCase()} ${ev.message || ''}`).join('\n')}
+                </pre>
+              )}
             </div>
           )}
 
           <div className="flex gap-2">
             {(run?.status === 'failed') && (
-              <button className="btn btn-primary btn-sm" onClick={() => onRerun?.(run.id)}>↻ Rerun</button>
+              <button className="btn btn-primary btn-sm" onClick={() => { onRestart?.(run.id); onClose(); }}>
+                ↻ Restart
+              </button>
             )}
             {(run?.status === 'running' || run?.status === 'queued') && (
-              <button className="btn btn-danger btn-sm" onClick={() => onCancel?.(run.id)}>✕ Cancel</button>
+              <button className="btn btn-danger btn-sm" onClick={() => { onCancel?.(run.id); onClose(); }}>
+                ✕ Cancel
+              </button>
             )}
+            <button className="btn btn-ghost btn-sm" onClick={onClose}>Close</button>
           </div>
         </div>
       )}
@@ -94,134 +117,178 @@ function RunDetailDrawer({ run, onClose, onRerun, onCancel }) {
   );
 }
 
-function ScheduleModal({ onClose, onScheduled }) {
+// ── Run Now Modal ─────────────────────────────────────────────────────────────
+
+function RunModal({ definition, onClose, onQueued }) {
   const toast = useToast();
-  const [suite, setSuite] = useState('all');
-  const [scheduledAt, setScheduledAt] = useState('');
-  const [notes, setNotes] = useState('');
+  const [timing, setTiming] = useState('immediate');
 
   const mutation = useApiMutation(
     (payload) => apiClient.post(EP.TASK_RUNS, payload),
     {
       invalidateKeys: ['task-runs'],
       onSuccess: (res) => {
-        toast.success(`Test run scheduled as task #${res.data?.id}`);
-        onScheduled?.();
+        toast.success(`Task queued as #${res.data?.id}`);
+        onQueued?.();
         onClose();
       },
       onError: (e) => toast.error(e.response?.data?.detail || e.message),
     }
   );
 
+  const delayForTiming = () => {
+    if (timing === 'in5min') return new Date(Date.now() + 5 * 60 * 1000).toISOString();
+    if (timing === 'in1h') return new Date(Date.now() + 60 * 60 * 1000).toISOString();
+    return null;
+  };
+
   const submit = () => {
-    mutation.mutate({
-      task_name: 'test_lab.scheduled_run',
-      queue_name: 'default',
+    if (!definition) return;
+    const payload = {
+      task_name: definition.name,
+      queue_name: definition.queue_name || 'default',
       status: 'queued',
-      related_object_type: 'test_lab',
-      payload: { suite, scheduled_at: scheduledAt, notes },
-      result: { source: 'frontend_test_lab' },
-    });
+      payload: { scheduled_at: delayForTiming(), source: 'test_lab_run_now' },
+    };
+    mutation.mutate(payload);
   };
 
   return (
     <Modal
-      open
+      open={!!definition}
       onClose={onClose}
-      title="Schedule Test Run"
+      title={`Run: ${definition?.name || 'Task'}`}
       footer={
         <>
           <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
-          <button className="btn btn-primary" onClick={submit} disabled={mutation.isPending}>Schedule</button>
+          <button className="btn btn-primary" onClick={submit} disabled={mutation.isPending}>
+            {mutation.isPending ? 'Queuing…' : '▶ Queue Task'}
+          </button>
         </>
       }
     >
       <div className="form-group">
-        <label className="form-label">Suite</label>
-        <select className="form-input" value={suite} onChange={(e) => setSuite(e.target.value)}>
-          <option value="all">All suites</option>
-          {TEST_SUITES.map((s) => <option key={s.suite} value={s.suite}>{s.suite}</option>)}
+        <label className="form-label">Queue</label>
+        <div style={{ padding: '0.5rem 0.75rem', background: 'var(--bg-secondary)', borderRadius: '6px', fontSize: '0.875rem' }}>
+          <code className="mono">{definition?.queue_name || 'default'}</code>
+        </div>
+      </div>
+      <div className="form-group">
+        <label className="form-label">Run timing</label>
+        <select className="form-input" value={timing} onChange={(e) => setTiming(e.target.value)}>
+          <option value="immediate">Immediate</option>
+          <option value="in5min">In 5 minutes</option>
+          <option value="in1h">In 1 hour</option>
         </select>
       </div>
-      <div className="form-group">
-        <label className="form-label">Run At</label>
-        <input className="form-input" type="datetime-local" value={scheduledAt} onChange={(e) => setScheduledAt(e.target.value)} />
-      </div>
-      <div className="form-group">
-        <label className="form-label">Notes</label>
-        <textarea className="form-input" rows={2} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Regression before release" />
-      </div>
+      {definition?.description && (
+        <p style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', margin: 0 }}>{definition.description}</p>
+      )}
     </Modal>
   );
 }
 
-// ── Tab: Test Runs ────────────────────────────────────────────────────────────
+// ── Tabs ──────────────────────────────────────────────────────────────────────
 
-function TestRunsTab({ runs, isLoading, onRerun, onCancel, onRowClick }) {
+function TestRunsTab({ runs, isLoading, onRowClick, onRestart, onCancel }) {
+  const total = runs.length;
+  const running = runs.filter((r) => r.status === 'running').length;
+  const failed = runs.filter((r) => r.status === 'failed').length;
+  const succeeded = runs.filter((r) => ['succeeded', 'success', 'completed'].includes(r.status)).length;
+
   if (isLoading) return <Spinner center />;
-  if (runs.length === 0) return <EmptyState title="No Test Runs" message="Queue a test run to see results here." />;
 
   return (
-    <table className="table">
-      <thead>
-        <tr><th>Suite</th><th>Task</th><th>Status</th><th>Started</th><th>Duration</th><th></th></tr>
-      </thead>
-      <tbody>
-        {runs.map((run) => {
-          const suite = run.payload?.suite || run.task_name?.replace('test_lab.', '') || '—';
-          const started = run.started_at || run.queued_at;
-          const duration = (run.started_at && run.finished_at)
-            ? `${Math.round((new Date(run.finished_at) - new Date(run.started_at)) / 1000)}s`
-            : run.status === 'running' ? 'running…' : '—';
-          return (
-            <tr key={run.id} style={{ cursor: 'pointer' }} onClick={() => onRowClick(run)}>
-              <td>
-                <div style={{ fontWeight: 600, fontSize: '0.875rem' }}>{suite}</div>
-              </td>
-              <td><code className="mono" style={{ fontSize: '0.75rem' }}>{run.task_name}</code></td>
-              <td><Badge color={statusColor(run.status)}>{run.status}</Badge></td>
-              <td style={{ fontSize: '0.8125rem', color: 'var(--text-muted)' }}>{started ? formatDateTime(started) : '—'}</td>
-              <td className="mono" style={{ fontSize: '0.8125rem' }}>{duration}</td>
-              <td onClick={(e) => e.stopPropagation()}>
-                <div className="flex gap-1">
-                  {run.status === 'failed' && (
-                    <button className="btn btn-ghost btn-sm" onClick={() => onRerun(run.id)}>↻</button>
-                  )}
-                  {(run.status === 'running' || run.status === 'queued') && (
-                    <button className="btn btn-ghost btn-sm" style={{ color: 'var(--danger)' }} onClick={() => onCancel(run.id)}>✕</button>
-                  )}
-                </div>
-              </td>
+    <>
+      <div className="stats-grid" style={{ '--cols': 4, padding: '1rem 1.25rem', borderBottom: '1px solid var(--border)' }}>
+        {[['Total', total], ['Running', running], ['Failed', failed], ['Completed', succeeded]].map(([label, value]) => (
+          <div key={label} className="stat-card" style={{ padding: '0.5rem', border: '1px solid var(--border)', borderRadius: '6px' }}>
+            <div className="stat-label">{label}</div>
+            <div className="stat-value" style={{ fontSize: '1.25rem' }}>{value}</div>
+          </div>
+        ))}
+      </div>
+
+      {runs.length === 0 ? (
+        <div style={{ padding: '2rem' }}>
+          <EmptyState title="No task runs" message="Queue a task to see runs here." />
+        </div>
+      ) : (
+        <table className="table">
+          <thead>
+            <tr>
+              <th>Task Name</th>
+              <th>Status</th>
+              <th>Started</th>
+              <th>Duration</th>
+              <th>Error</th>
+              <th></th>
             </tr>
-          );
-        })}
-      </tbody>
-    </table>
+          </thead>
+          <tbody>
+            {runs.map((run) => (
+              <tr key={run.id} style={{ cursor: 'pointer' }} onClick={() => onRowClick(run)}>
+                <td>
+                  <code className="mono" style={{ fontSize: '0.8125rem' }}>{run.task_name}</code>
+                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>#{run.id}</div>
+                </td>
+                <td><Badge color={taskStatusColor(run.status)}>{run.status}</Badge></td>
+                <td style={{ fontSize: '0.8125rem', color: 'var(--text-muted)' }}>
+                  {run.started_at ? formatDateTime(run.started_at) : (run.queued_at ? formatDateTime(run.queued_at) : '—')}
+                </td>
+                <td className="mono" style={{ fontSize: '0.8125rem' }}>{calcDuration(run)}</td>
+                <td style={{ fontSize: '0.8rem', color: 'var(--danger)', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {run.error_message ? run.error_message.slice(0, 80) + (run.error_message.length > 80 ? '…' : '') : '—'}
+                </td>
+                <td onClick={(e) => e.stopPropagation()}>
+                  <div className="flex gap-1">
+                    {run.status === 'failed' && (
+                      <button className="btn btn-ghost btn-sm" onClick={() => onRestart(run.id)} title="Restart">↻</button>
+                    )}
+                    {(run.status === 'running' || run.status === 'queued') && (
+                      <button className="btn btn-ghost btn-sm" style={{ color: 'var(--danger)' }} onClick={() => onCancel(run.id)} title="Cancel">✕</button>
+                    )}
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </>
   );
 }
 
-// ── Tab: Definitions ─────────────────────────────────────────────────────────
-
-function DefinitionsTab({ onRunNow }) {
-  const { data, isLoading } = useApiQuery(['task-definitions'], EP.TASK_DEFINITIONS);
-  const definitions = data?.results ?? data ?? [];
-
+function DefinitionsTab({ definitions, isLoading, onRunNow }) {
   if (isLoading) return <Spinner center />;
-  if (definitions.length === 0) return <EmptyState title="No Task Definitions" message="No task definitions registered." />;
+  if (!definitions.length) return <div style={{ padding: '2rem' }}><EmptyState title="No Task Definitions" message="No task definitions registered yet." /></div>;
 
   return (
     <table className="table">
       <thead>
-        <tr><th>Name</th><th>Queue</th><th>Restartable</th><th></th></tr>
+        <tr>
+          <th>Task Name</th>
+          <th>Description</th>
+          <th>Queue</th>
+          <th>Restartable</th>
+          <th></th>
+        </tr>
       </thead>
       <tbody>
         {definitions.map((def) => (
           <tr key={def.id}>
             <td><code className="mono" style={{ fontSize: '0.8125rem' }}>{def.name}</code></td>
-            <td><code style={{ fontSize: '0.75rem', background: 'var(--bg-secondary)', padding: '2px 4px', borderRadius: '3px' }}>{def.queue_name || 'default'}</code></td>
+            <td style={{ fontSize: '0.8125rem', color: 'var(--text-muted)' }}>{def.description || '—'}</td>
+            <td>
+              <code style={{ fontSize: '0.75rem', background: 'var(--bg-secondary)', padding: '2px 5px', borderRadius: 3 }}>
+                {def.queue_name || 'default'}
+              </code>
+            </td>
             <td><Badge color={def.is_restartable ? 'success' : 'secondary'}>{def.is_restartable ? 'Yes' : 'No'}</Badge></td>
             <td>
-              <button className="btn btn-primary btn-sm" onClick={() => onRunNow(def)}>▶ Run Now</button>
+              <button className="btn btn-primary btn-sm" onClick={() => onRunNow(def)}>
+                ▶ Run Now
+              </button>
             </td>
           </tr>
         ))}
@@ -230,63 +297,33 @@ function DefinitionsTab({ onRunNow }) {
   );
 }
 
-// ── Tab: Schedule ─────────────────────────────────────────────────────────────
-
-function ScheduleTab({ onTrigger }) {
-  const { data, isLoading } = useApiQuery(['task-definitions-schedule'], EP.TASK_DEFINITIONS);
-  const definitions = (data?.results ?? data ?? []).filter((d) => d.is_restartable);
-
-  if (isLoading) return <Spinner center />;
-
-  return (
-    <div style={{ padding: '1rem' }}>
-      <div style={{ marginBottom: '1rem', fontWeight: 600, fontSize: '0.875rem' }}>Celery Beat Schedule</div>
-      {definitions.length === 0 ? (
-        <EmptyState title="No Scheduled Tasks" message="No periodic task definitions registered." />
-      ) : (
-        <div className="flex flex-col gap-2">
-          {definitions.map((def) => (
-            <div key={def.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.75rem', border: '1px solid var(--border)', borderRadius: '8px' }}>
-              <div>
-                <code className="mono" style={{ fontSize: '0.8125rem' }}>{def.name}</code>
-                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{def.queue_name || 'default'} queue</div>
-              </div>
-              <button className="btn btn-ghost btn-sm" onClick={() => onTrigger(def)}>▶ Trigger</button>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 export default function TestLab() {
   const toast = useToast();
   const [activeTab, setActiveTab] = useState('runs');
-  const [scheduleModal, setScheduleModal] = useState(false);
   const [detailDrawer, setDetailDrawer] = useState(null);
+  const [runModal, setRunModal] = useState(null);
 
-  const { data, isLoading, refetch } = useApiQuery(['task-runs'], EP.TASK_RUNS, { page_size: 20, related_object_type: 'test_lab' });
-  const runs = data?.results ?? data ?? [];
-
-  const summary = runs.reduce((acc, r) => { acc[r.status] = (acc[r.status] || 0) + 1; return acc; }, {});
-
-  const runMutation = useApiMutation(
-    (payload) => apiClient.post(EP.TASK_RUNS, payload),
-    {
-      invalidateKeys: ['task-runs'],
-      onSuccess: (res) => { toast.success(`Task #${res.data?.id} queued`); refetch(); },
-      onError: (e) => toast.error(e.response?.data?.detail || e.message),
-    }
+  const { data: runsData, isLoading: runsLoading, refetch: refetchRuns } = useApiQuery(
+    ['task-runs'],
+    EP.TASK_RUNS,
+    { page_size: 25, ordering: '-created_at' }
   );
 
-  const rerunMutation = useApiMutation(
+  const { data: defsData, isLoading: defsLoading } = useApiQuery(
+    ['task-definitions'],
+    EP.TASK_DEFINITIONS
+  );
+
+  const runs = runsData?.results ?? runsData ?? [];
+  const definitions = defsData?.results ?? defsData ?? [];
+
+  const restartMutation = useApiMutation(
     (id) => apiClient.post(EP.TASK_RUN_RESTART(id)),
     {
       invalidateKeys: ['task-runs'],
-      onSuccess: () => { toast.success('Task requeued'); setDetailDrawer(null); refetch(); },
+      onSuccess: () => { toast.success('Task requeued for restart'); refetchRuns(); },
       onError: (e) => toast.error(e.response?.data?.detail || e.message),
     }
   );
@@ -295,80 +332,62 @@ export default function TestLab() {
     (id) => apiClient.post(EP.TASK_RUN_CANCEL(id)),
     {
       invalidateKeys: ['task-runs'],
-      onSuccess: () => { toast.success('Task cancelled'); setDetailDrawer(null); refetch(); },
+      onSuccess: () => { toast.success('Task cancelled'); refetchRuns(); },
       onError: (e) => toast.error(e.response?.data?.detail || e.message),
     }
   );
 
-  const queueRun = (taskName, payload) =>
-    runMutation.mutate({ task_name: taskName, queue_name: 'default', status: 'queued', related_object_type: 'test_lab', payload, result: { source: 'frontend_test_lab' } });
+  const runNowMutation = useApiMutation(
+    (payload) => apiClient.post(EP.TASK_RUNS, payload),
+    {
+      invalidateKeys: ['task-runs'],
+      onSuccess: (res) => {
+        toast.success(`Task queued as #${res.data?.id}`);
+        setActiveTab('runs');
+        refetchRuns();
+      },
+      onError: (e) => toast.error(e.response?.data?.detail || e.message),
+    }
+  );
 
-  const runAllTests = () => queueRun('test_lab.run_all', { suite: 'all', total: TEST_SUITES.length });
-  const runSuite = (suite) => queueRun('test_lab.run_suite', { suite });
-  const runDefinition = (def) => runMutation.mutate({ task_name: def.name, queue_name: def.queue_name || 'default', status: 'queued', payload: {} });
-
-  const lastRun = runs[0];
+  const handleRunDefinition = useCallback((def) => {
+    setRunModal(def);
+  }, []);
 
   return (
     <div>
       <div className="page-header">
         <div>
-          <h1 className="page-title">QA Test Lab</h1>
-          <p className="page-subtitle">Automated test suite runner and task management</p>
+          <h1 className="page-title">Test Lab</h1>
+          <p className="page-subtitle">Queue, monitor, and manage background task runs</p>
         </div>
         <div className="flex gap-2">
-          <button className="btn btn-ghost" onClick={() => setScheduleModal(true)}>📅 Schedule Run</button>
-          <button className="btn btn-primary" onClick={runAllTests} disabled={runMutation.isPending}>
-            {runMutation.isPending ? 'Queuing…' : '▶ Run All Tests'}
+          <button className="btn btn-ghost" onClick={refetchRuns}>↺ Refresh</button>
+          <button
+            className="btn btn-primary"
+            onClick={() => runNowMutation.mutate({ task_name: 'test_lab.smoke_test', queue_name: 'default', status: 'queued', payload: { source: 'test_lab' } })}
+            disabled={runNowMutation.isPending}
+          >
+            {runNowMutation.isPending ? 'Queuing…' : '▶ Quick Test Run'}
           </button>
         </div>
       </div>
 
-      {/* Stats */}
-      <div className="stats-grid" style={{ '--cols': 5, marginBottom: '1.5rem' }}>
-        {[
-          ['Queued', summary.queued || 0],
-          ['Running', summary.running || 0],
-          ['Succeeded', summary.succeeded || 0],
-          ['Failed', summary.failed || 0],
-          ['Last Run', lastRun ? formatDateTime(lastRun.queued_at || lastRun.created_at) : '—'],
-        ].map(([label, value]) => (
-          <div key={label} className="stat-card">
-            <div className="stat-label">{label}</div>
-            <div className="stat-value">{value}</div>
-          </div>
-        ))}
-      </div>
-
-      {/* Suite Quick-Run Grid */}
-      <div className="card" style={{ padding: '1.25rem', marginBottom: '1.5rem' }}>
-        <div style={{ fontWeight: 600, marginBottom: '0.75rem' }}>Test Suites</div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '0.5rem' }}>
-          {TEST_SUITES.map((s) => {
-            const suiteRuns = runs.filter((r) => (r.payload?.suite || '').toLowerCase() === s.suite.toLowerCase());
-            const last = suiteRuns[0];
-            return (
-              <div key={s.suite} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.625rem 0.75rem', border: '1px solid var(--border)', borderRadius: '8px', background: 'var(--bg-card)' }}>
-                <div>
-                  <div style={{ fontWeight: 600, fontSize: '0.8125rem' }}>{s.suite}</div>
-                  <div style={{ display: 'flex', gap: '0.25rem', marginTop: '2px' }}>
-                    <Badge color="secondary" style={{ fontSize: '0.68rem' }}>{s.type}</Badge>
-                    {last && <Badge color={statusColor(last.status)} style={{ fontSize: '0.68rem' }}>{last.status}</Badge>}
-                  </div>
-                </div>
-                <button className="btn btn-ghost btn-sm" onClick={() => runSuite(s.suite)}>▶</button>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Tabs */}
       <div className="card" style={{ padding: 0 }}>
+        {/* Tabs */}
         <div className="tabs" style={{ borderBottom: '1px solid var(--border)', padding: '0 1rem' }}>
-          {[['runs', 'Test Runs'], ['definitions', 'Task Definitions'], ['schedule', 'Schedule']].map(([id, label]) => (
-            <button key={id} className={`tab${activeTab === id ? ' active' : ''}`} onClick={() => setActiveTab(id)}>
+          {[['runs', 'Test Runs'], ['definitions', 'Task Definitions']].map(([id, label]) => (
+            <button
+              key={id}
+              className={`tab${activeTab === id ? ' active' : ''}`}
+              onClick={() => setActiveTab(id)}
+            >
               {label}
+              {id === 'runs' && runs.length > 0 && (
+                <span className="badge badge-secondary" style={{ marginLeft: '0.375rem', fontSize: '0.7rem' }}>
+                  {runs.length}
+                </span>
+              )}
             </button>
           ))}
         </div>
@@ -376,26 +395,38 @@ export default function TestLab() {
         {activeTab === 'runs' && (
           <TestRunsTab
             runs={runs}
-            isLoading={isLoading}
-            onRerun={(id) => rerunMutation.mutate(id)}
-            onCancel={(id) => cancelMutation.mutate(id)}
+            isLoading={runsLoading}
             onRowClick={setDetailDrawer}
+            onRestart={(id) => restartMutation.mutate(id)}
+            onCancel={(id) => cancelMutation.mutate(id)}
           />
         )}
-        {activeTab === 'definitions' && <DefinitionsTab onRunNow={runDefinition} />}
-        {activeTab === 'schedule' && <ScheduleTab onTrigger={runDefinition} />}
+
+        {activeTab === 'definitions' && (
+          <DefinitionsTab
+            definitions={definitions}
+            isLoading={defsLoading}
+            onRunNow={handleRunDefinition}
+          />
+        )}
       </div>
 
-      {scheduleModal && (
-        <ScheduleModal onClose={() => setScheduleModal(false)} onScheduled={refetch} />
-      )}
-
+      {/* Run Detail Drawer */}
       {detailDrawer && (
         <RunDetailDrawer
           run={detailDrawer}
           onClose={() => setDetailDrawer(null)}
-          onRerun={(id) => { rerunMutation.mutate(id); }}
-          onCancel={(id) => { cancelMutation.mutate(id); }}
+          onRestart={(id) => restartMutation.mutate(id)}
+          onCancel={(id) => cancelMutation.mutate(id)}
+        />
+      )}
+
+      {/* Run Modal */}
+      {runModal && (
+        <RunModal
+          definition={runModal}
+          onClose={() => setRunModal(null)}
+          onQueued={() => { setActiveTab('runs'); refetchRuns(); }}
         />
       )}
     </div>

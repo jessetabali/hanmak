@@ -5,88 +5,93 @@ import { EP } from '../../api/endpoints';
 import { useToast } from '../../hooks/useToast';
 import Spinner from '../../components/ui/Spinner';
 
-const LOCALES = [
-  { value: 'en-US', label: 'English (US)' },
-  { value: 'en-GB', label: 'English (UK)' },
-  { value: 'es', label: 'Spanish' },
-  { value: 'fr', label: 'French' },
-  { value: 'de', label: 'German' },
-  { value: 'ja', label: 'Japanese' },
-];
-const DATE_FORMATS = [
-  { value: 'MM/DD/YYYY', label: 'MM/DD/YYYY' },
-  { value: 'DD/MM/YYYY', label: 'DD/MM/YYYY' },
-  { value: 'YYYY-MM-DD', label: 'YYYY-MM-DD (ISO 8601)' },
-];
-const TIME_FORMATS = [
-  { value: '12h', label: '12-hour (AM/PM)' },
-  { value: '24h', label: '24-hour' },
-];
-const TIMEZONES = [
-  { value: 'America/Los_Angeles', label: 'UTC-8 Pacific' },
-  { value: 'America/New_York', label: 'UTC-5 Eastern' },
-  { value: 'UTC', label: 'UTC+0 London' },
-  { value: 'Asia/Singapore', label: 'UTC+8 Singapore' },
-];
-const REMINDER_SCHEDULES = [
-  { value: 'every_2_days', label: 'Every 2 days' },
-  { value: 'daily', label: 'Daily' },
-  { value: 'every_3_days', label: 'Every 3 days' },
-  { value: 'none', label: 'None' },
-];
-const SIGNING_ORDERS = [
-  { value: 'sequential', label: 'Sequential (one at a time)' },
-  { value: 'parallel', label: 'Parallel (all at once)' },
-];
-
-function Toggle({ checked, onChange }) {
+function Toggle({ id, checked, onChange }) {
   return (
-    <label style={{ position: 'relative', display: 'inline-block', width: 40, height: 22, cursor: 'pointer' }}>
-      <input type="checkbox" checked={checked} onChange={onChange} style={{ opacity: 0, width: 0, height: 0 }} />
-      <span style={{ position: 'absolute', inset: 0, background: checked ? 'var(--primary)' : 'var(--border)', borderRadius: 11, transition: '0.2s' }} />
+    <label htmlFor={id} style={{ position: 'relative', display: 'inline-block', width: 40, height: 22, cursor: 'pointer' }}>
+      <input
+        id={id}
+        type="checkbox"
+        checked={checked}
+        onChange={onChange}
+        style={{ opacity: 0, width: 0, height: 0 }}
+      />
+      <span
+        style={{
+          position: 'absolute',
+          inset: 0,
+          background: checked ? 'var(--primary)' : 'var(--border)',
+          borderRadius: 11,
+          transition: '0.2s',
+        }}
+      />
     </label>
   );
 }
 
+const TIMEZONES = [
+  'UTC',
+  'America/New_York',
+  'America/Chicago',
+  'America/Denver',
+  'America/Los_Angeles',
+  'America/Toronto',
+  'America/Vancouver',
+  'America/Sao_Paulo',
+  'Europe/London',
+  'Europe/Paris',
+  'Europe/Berlin',
+  'Europe/Madrid',
+  'Europe/Rome',
+  'Europe/Amsterdam',
+  'Europe/Stockholm',
+  'Europe/Warsaw',
+  'Europe/Istanbul',
+  'Africa/Cairo',
+  'Africa/Johannesburg',
+  'Asia/Dubai',
+  'Asia/Kolkata',
+  'Asia/Dhaka',
+  'Asia/Bangkok',
+  'Asia/Singapore',
+  'Asia/Shanghai',
+  'Asia/Tokyo',
+  'Asia/Seoul',
+  'Australia/Sydney',
+  'Australia/Perth',
+  'Pacific/Auckland',
+];
+
+const DEFAULT_FORM = {
+  application_name: '',
+  time_format: '24h',
+  default_language: 'en',
+  date_format: 'YYYY-MM-DD',
+  timezone: 'UTC',
+  support_email: '',
+  envelope_expiry_days: 30,
+  allow_public_registration: false,
+  require_email_verification: true,
+  default_envelope_due_days: 7,
+  enable_completion_certificates: true,
+  enable_bulk_send: true,
+  enable_mobile_signing: true,
+};
+
 export default function General() {
   const toast = useToast();
-  const { data: orgsData } = useApiQuery(['organizations'], EP.ORGANIZATIONS);
-  const orgId = orgsData?.results?.[0]?.id;
+  const [form, setForm] = useState(DEFAULT_FORM);
 
-  const { data, isLoading, refetch } = useApiQuery(
-    ['general-settings', orgId],
-    EP.GENERAL_SETTINGS,
-    { params: orgId ? { organization: orgId } : {} },
-    { enabled: !!orgId }
-  );
-
-  const [form, setForm] = useState(null);
-
-  const s = data?.results?.[0] || data;
+  const { data, isLoading } = useApiQuery(['general-settings'], EP.GENERAL_SETTINGS);
 
   useEffect(() => {
-    if (s && !form) {
-      setForm({
-        application_name: s.application_name || 'HanMak',
-        support_email: s.support_email || '',
-        default_locale: s.default_locale || 'en-US',
-        date_format: s.date_format || 'YYYY-MM-DD',
-        time_format: s.time_format || '12h',
-        default_timezone: s.default_timezone || 'UTC',
-        default_envelope_expiration_days: s.default_envelope_expiration_days ?? 30,
-        default_reminder_schedule: s.default_reminder_schedule || 'every_2_days',
-        default_signing_order: s.default_signing_order || 'sequential',
-        require_email_verification: s.require_email_verification ?? true,
-        allow_mobile_signing: s.allow_mobile_signing ?? true,
-        enable_completion_certificates: s.enable_completion_certificates ?? true,
-        send_audit_trail_on_completion: s.send_audit_trail_on_completion ?? true,
-        allow_bulk_send: s.allow_bulk_send ?? true,
-      });
+    if (data) {
+      const s = data?.results?.[0] || data;
+      setForm((prev) => ({ ...prev, ...s }));
     }
-  }, [s]);
+  }, [data]);
 
   const saveMutation = useApiMutation(
-    (payload) => apiClient.post(EP.GENERAL_SETTINGS, payload),
+    (payload) => apiClient.patch(EP.GENERAL_SETTINGS, payload),
     {
       invalidateKeys: ['general-settings'],
       onSuccess: () => toast.success('General settings saved'),
@@ -94,93 +99,216 @@ export default function General() {
     }
   );
 
-  function save() {
-    if (!form) return;
-    saveMutation.mutate({ ...form, organization: orgId });
-  }
+  const setF = (key, value) => setForm((prev) => ({ ...prev, [key]: value }));
 
-  const f = form || {};
-  const setF = (key, value) => setForm(prev => ({ ...prev, [key]: value }));
+  if (isLoading) return <Spinner center />;
 
-  if (isLoading && !form) return <Spinner center />;
+  const sectionHeading = (label, topMargin = '1.5rem') => (
+    <h3 style={{
+      fontSize: '0.875rem',
+      fontWeight: 700,
+      color: 'var(--text-muted)',
+      textTransform: 'uppercase',
+      letterSpacing: '0.05em',
+      marginBottom: '1rem',
+      marginTop: topMargin,
+    }}>
+      {label}
+    </h3>
+  );
 
   return (
-    <div>
-      <div className="page-header">
-        <div>
-          <h1 className="page-title">General Settings</h1>
-          <p className="page-subtitle">Core application configuration and preferences</p>
-        </div>
-        <button className="btn btn-primary" disabled={saveMutation.isPending} onClick={save}>
+    <div className="card" style={{ padding: '1.5rem' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+        <h2 className="section-title" style={{ margin: 0 }}>General Settings</h2>
+        <button
+          className="btn btn-primary"
+          disabled={saveMutation.isPending}
+          onClick={() => saveMutation.mutate(form)}
+        >
           {saveMutation.isPending ? 'Saving…' : 'Save Changes'}
         </button>
       </div>
 
-      <div className="flex flex-col gap-4">
-        <div className="card" style={{ padding: '1.5rem' }}>
-          <h3 style={{ fontSize: '1rem', fontWeight: 700, marginBottom: '1.25rem' }}>Application Settings</h3>
-          <div className="form-group"><label className="form-label">Application Name</label><input className="form-input" value={f.application_name || ''} onChange={e => setF('application_name', e.target.value)} /></div>
-          <div className="form-group"><label className="form-label">Support Email</label><input className="form-input" type="email" value={f.support_email || ''} onChange={e => setF('support_email', e.target.value)} /></div>
-          <div className="form-group">
-            <label className="form-label">Default Language</label>
-            <select className="form-input" value={f.default_locale || 'en-US'} onChange={e => setF('default_locale', e.target.value)}>
-              {LOCALES.map(l => <option key={l.value} value={l.value}>{l.label}</option>)}
-            </select>
-          </div>
-          <div className="form-group">
-            <label className="form-label">Date Format</label>
-            <select className="form-input" value={f.date_format || 'YYYY-MM-DD'} onChange={e => setF('date_format', e.target.value)}>
-              {DATE_FORMATS.map(d => <option key={d.value} value={d.value}>{d.label}</option>)}
-            </select>
-          </div>
-          <div className="form-group">
-            <label className="form-label">Time Format</label>
-            <select className="form-input" value={f.time_format || '12h'} onChange={e => setF('time_format', e.target.value)}>
-              {TIME_FORMATS.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
-            </select>
-          </div>
-          <div className="form-group">
-            <label className="form-label">Default Timezone</label>
-            <select className="form-input" value={f.default_timezone || 'UTC'} onChange={e => setF('default_timezone', e.target.value)}>
-              {TIMEZONES.map(tz => <option key={tz.value} value={tz.value}>{tz.label}</option>)}
-            </select>
-          </div>
+      {sectionHeading('Application', '0')}
+
+      <div className="form-group">
+        <label className="form-label">Application Name</label>
+        <input
+          className="form-input"
+          value={form.application_name}
+          onChange={(e) => setF('application_name', e.target.value)}
+          placeholder="HanMak"
+        />
+      </div>
+
+      <div className="form-group">
+        <label className="form-label">Support Email</label>
+        <input
+          className="form-input"
+          type="email"
+          value={form.support_email}
+          onChange={(e) => setF('support_email', e.target.value)}
+          placeholder="support@yourcompany.com"
+        />
+        <p className="form-hint">Shown to users on error pages and notification footers</p>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+        <div className="form-group">
+          <label className="form-label">Time Format</label>
+          <select
+            className="form-input"
+            value={form.time_format}
+            onChange={(e) => setF('time_format', e.target.value)}
+          >
+            <option value="12h">12-hour (AM/PM)</option>
+            <option value="24h">24-hour</option>
+          </select>
         </div>
 
-        <div className="card" style={{ padding: '1.5rem' }}>
-          <h3 style={{ fontSize: '1rem', fontWeight: 700, marginBottom: '1.25rem' }}>Envelope Defaults</h3>
-          <div className="form-group">
-            <label className="form-label">Default Expiration (days)</label>
-            <input className="form-input" type="number" style={{ width: 120 }} min={1} value={f.default_envelope_expiration_days ?? 30} onChange={e => setF('default_envelope_expiration_days', Number(e.target.value))} />
-          </div>
-          <div className="form-group">
-            <label className="form-label">Default Reminder Schedule</label>
-            <select className="form-input" value={f.default_reminder_schedule || 'every_2_days'} onChange={e => setF('default_reminder_schedule', e.target.value)}>
-              {REMINDER_SCHEDULES.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
-            </select>
-          </div>
-          <div className="form-group">
-            <label className="form-label">Signing Order</label>
-            <select className="form-input" value={f.default_signing_order || 'sequential'} onChange={e => setF('default_signing_order', e.target.value)}>
-              {SIGNING_ORDERS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-            </select>
-          </div>
+        <div className="form-group">
+          <label className="form-label">Date Format</label>
+          <select
+            className="form-input"
+            value={form.date_format}
+            onChange={(e) => setF('date_format', e.target.value)}
+          >
+            <option value="YYYY-MM-DD">YYYY-MM-DD</option>
+            <option value="DD/MM/YYYY">DD/MM/YYYY</option>
+            <option value="MM/DD/YYYY">MM/DD/YYYY</option>
+          </select>
+        </div>
 
-          <div className="flex flex-col gap-2" style={{ fontSize: '0.875rem' }}>
-            {[
-              ['Require email verification before signing', 'require_email_verification'],
-              ['Allow signing on mobile devices', 'allow_mobile_signing'],
-              ['Enable completion certificates', 'enable_completion_certificates'],
-              ['Send audit trail on completion', 'send_audit_trail_on_completion'],
-              ['Allow bulk send', 'allow_bulk_send'],
-            ].map(([label, key]) => (
-              <div key={key} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.5rem 0', borderBottom: '1px solid var(--border)' }}>
-                <span>{label}</span>
-                <Toggle checked={!!f[key]} onChange={e => setF(key, e.target.checked)} />
-              </div>
+        <div className="form-group">
+          <label className="form-label">Default Language</label>
+          <select
+            className="form-input"
+            value={form.default_language}
+            onChange={(e) => setF('default_language', e.target.value)}
+          >
+            <option value="en">English</option>
+            <option value="fr">French</option>
+            <option value="de">German</option>
+            <option value="es">Spanish</option>
+            <option value="pt">Portuguese</option>
+            <option value="it">Italian</option>
+            <option value="nl">Dutch</option>
+            <option value="ja">Japanese</option>
+            <option value="zh">Chinese (Simplified)</option>
+          </select>
+        </div>
+
+        <div className="form-group">
+          <label className="form-label">Timezone</label>
+          <select
+            className="form-input"
+            value={form.timezone}
+            onChange={(e) => setF('timezone', e.target.value)}
+          >
+            {TIMEZONES.map((tz) => (
+              <option key={tz} value={tz}>{tz}</option>
             ))}
-          </div>
+          </select>
         </div>
+      </div>
+
+      {sectionHeading('Envelope Defaults')}
+
+      <div className="form-row">
+        <div className="form-group">
+          <label className="form-label">Envelope Expiry Days</label>
+          <input
+            className="form-input"
+            type="number"
+            min={1}
+            value={form.envelope_expiry_days}
+            onChange={(e) => setF('envelope_expiry_days', Number(e.target.value))}
+            style={{ width: 120 }}
+          />
+          <p className="form-hint">Days before an envelope expires</p>
+        </div>
+        <div className="form-group">
+          <label className="form-label">Default Due Days</label>
+          <input
+            className="form-input"
+            type="number"
+            min={1}
+            value={form.default_envelope_due_days}
+            onChange={(e) => setF('default_envelope_due_days', Number(e.target.value))}
+            style={{ width: 120 }}
+          />
+          <p className="form-hint">Default days until signing is due</p>
+        </div>
+      </div>
+
+      {sectionHeading('Registration')}
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+        {[
+          {
+            key: 'allow_public_registration',
+            label: 'Allow Public Registration',
+            hint: 'Allow anyone to create an account without an invitation',
+          },
+          {
+            key: 'require_email_verification',
+            label: 'Require Email Verification',
+            hint: 'New users must verify their email before signing in',
+          },
+        ].map(({ key, label, hint }) => (
+          <div
+            key={key}
+            style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.625rem 0', borderBottom: '1px solid var(--border)' }}
+          >
+            <div>
+              <div style={{ fontWeight: 500, fontSize: '0.875rem' }}>{label}</div>
+              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{hint}</div>
+            </div>
+            <Toggle
+              id={key}
+              checked={!!form[key]}
+              onChange={(e) => setF(key, e.target.checked)}
+            />
+          </div>
+        ))}
+      </div>
+
+      {sectionHeading('Features')}
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+        {[
+          {
+            key: 'enable_completion_certificates',
+            label: 'Completion Certificates',
+            hint: 'Generate a completion certificate PDF when all parties have signed an envelope',
+          },
+          {
+            key: 'enable_bulk_send',
+            label: 'Bulk Send',
+            hint: 'Allow sending an envelope to multiple recipients simultaneously via CSV upload',
+          },
+          {
+            key: 'enable_mobile_signing',
+            label: 'Mobile Signing',
+            hint: 'Optimize the signing experience for mobile browsers with touch-friendly field controls',
+          },
+        ].map(({ key, label, hint }) => (
+          <div
+            key={key}
+            style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.625rem 0', borderBottom: '1px solid var(--border)' }}
+          >
+            <div>
+              <div style={{ fontWeight: 500, fontSize: '0.875rem' }}>{label}</div>
+              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{hint}</div>
+            </div>
+            <Toggle
+              id={key}
+              checked={!!form[key]}
+              onChange={(e) => setF(key, e.target.checked)}
+            />
+          </div>
+        ))}
       </div>
     </div>
   );

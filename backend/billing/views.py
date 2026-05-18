@@ -68,9 +68,10 @@ class SubscriptionViewSet(OrganizationScopedQuerySetMixin, viewsets.ModelViewSet
         if not user_has_org_role(request.user, organization.id, [Membership.Role.ADMIN, Membership.Role.MANAGER]):
             return response.Response({'detail': 'Admin or manager membership is required for billing checkout.'}, status=403)
         token = secrets.token_urlsafe(18)
-        success_url = request.data.get('success_url') or getattr(settings, 'HANMAK_BILLING_SUCCESS_URL', 'http://127.0.0.1:8080/mock/?page=billing&checkout=success')
-        cancel_url = request.data.get('cancel_url') or getattr(settings, 'HANMAK_BILLING_CANCEL_URL', 'http://127.0.0.1:8080/mock/?page=billing&checkout=cancel')
-        base_url = getattr(settings, 'HANMAK_PAYMENT_CHECKOUT_BASE_URL', 'http://127.0.0.1:8080/mock/billing-checkout')
+        _pub = getattr(settings, 'HANMAK_PUBLIC_BASE_URL', 'http://localhost:8080').rstrip('/')
+        success_url = request.data.get('success_url') or getattr(settings, 'HANMAK_BILLING_SUCCESS_URL', f'{_pub}/billing?checkout=success')
+        cancel_url = request.data.get('cancel_url') or getattr(settings, 'HANMAK_BILLING_CANCEL_URL', f'{_pub}/billing?checkout=cancel')
+        base_url = getattr(settings, 'HANMAK_PAYMENT_CHECKOUT_BASE_URL', f'{_pub}/billing/checkout')
         session = PaymentPortalSession.objects.create(
             organization=organization,
             plan=plan,
@@ -95,8 +96,9 @@ class SubscriptionViewSet(OrganizationScopedQuerySetMixin, viewsets.ModelViewSet
         if not user_has_org_role(request.user, organization.id, [Membership.Role.ADMIN, Membership.Role.MANAGER]):
             return response.Response({'detail': 'Admin or manager membership is required for billing portal access.'}, status=403)
         token = secrets.token_urlsafe(18)
-        return_url = request.data.get('return_url') or getattr(settings, 'HANMAK_BILLING_RETURN_URL', 'http://127.0.0.1:8080/mock/?page=billing')
-        base_url = getattr(settings, 'HANMAK_PAYMENT_PORTAL_BASE_URL', 'http://127.0.0.1:8080/mock/billing-portal')
+        _pub = getattr(settings, 'HANMAK_PUBLIC_BASE_URL', 'http://localhost:8080').rstrip('/')
+        return_url = request.data.get('return_url') or getattr(settings, 'HANMAK_BILLING_RETURN_URL', f'{_pub}/billing')
+        base_url = getattr(settings, 'HANMAK_PAYMENT_PORTAL_BASE_URL', f'{_pub}/billing/portal')
         session = PaymentPortalSession.objects.create(
             organization=organization,
             session_type=PaymentPortalSession.SessionType.PORTAL,

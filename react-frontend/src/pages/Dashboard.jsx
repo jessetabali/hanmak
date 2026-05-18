@@ -42,6 +42,21 @@ export default function Dashboard() {
     ['envelope-summary'],
     EP.ENVELOPE_SUMMARY
   );
+  const { data: webhookDeliveryData } = useApiQuery(
+    ['webhook-deliveries-dashboard'],
+    EP.WEBHOOK_DELIVERIES,
+    { page_size: 50 }
+  );
+  const { data: workflowRunData } = useApiQuery(
+    ['workflow-runs-dashboard'],
+    EP.WORKFLOW_RUNS,
+    { page_size: 5 }
+  );
+  const { data: workflowData } = useApiQuery(
+    ['workflows-dashboard'],
+    EP.WORKFLOWS,
+    { page_size: 10 }
+  );
 
   // Resolve risk findings mutation
   const resolveRiskMutation = useApiMutation(
@@ -74,6 +89,22 @@ export default function Dashboard() {
   ].slice(0, 5);
   const riskFindings = riskData?.results ?? riskData ?? [];
   const bottlenecks = Array.isArray(approvalData) ? approvalData : [];
+
+  // Webhook health derived stats
+  const recentDeliveries = webhookDeliveryData?.results ?? webhookDeliveryData ?? [];
+  const whTotal = recentDeliveries.length;
+  const whSucceeded = recentDeliveries.filter(
+    (d) => d.status === 'delivered' || (d.response_status >= 200 && d.response_status < 300)
+  ).length;
+  const whFailed = recentDeliveries.filter(
+    (d) => d.status === 'failed' || d.status === 'error'
+  ).length;
+  const whSuccessRate = whTotal > 0 ? Math.round((whSucceeded / whTotal) * 100) : null;
+
+  // Workflow snapshot
+  const recentRuns = workflowRunData?.results ?? workflowRunData ?? [];
+  const workflows = workflowData?.results ?? workflowData ?? [];
+  const activeWorkflows = workflows.filter((w) => w.is_active !== false).length;
 
   // Severity config for risk radar
   const severityConfig = {
@@ -411,6 +442,87 @@ export default function Dashboard() {
                 })
               ) : (
                 <EmptyState title="No open risk findings" message="Risk findings will appear here." />
+              )}
+            </div>
+          </div>
+
+          {/* Webhook Health */}
+          <div className="card">
+            <div className="card-header">
+              <span className="card-title">Webhook Health</span>
+              <button className="btn btn-ghost btn-sm" onClick={() => navigate('/developer/webhooks')}>
+                Manage &rsaquo;
+              </button>
+            </div>
+            <div style={{ padding: '16px' }}>
+              {whTotal > 0 ? (
+                <>
+                  <div style={{ marginBottom: '0.75rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', marginBottom: '4px' }}>
+                      <span>Success Rate</span>
+                      <span style={{ fontWeight: 700, color: whSuccessRate >= 95 ? '#10b981' : whSuccessRate >= 80 ? '#f59e0b' : '#ef4444' }}>
+                        {whSuccessRate}%
+                      </span>
+                    </div>
+                    <div style={{ height: '7px', background: 'var(--border)', borderRadius: '4px', overflow: 'hidden' }}>
+                      <div style={{ width: `${whSuccessRate}%`, height: '100%', background: whSuccessRate >= 95 ? '#10b981' : whSuccessRate >= 80 ? '#f59e0b' : '#ef4444', borderRadius: '4px' }} />
+                    </div>
+                  </div>
+                  {[
+                    ['Deliveries (recent)', whTotal],
+                    ['Succeeded', whSucceeded],
+                    ['Failed', whFailed],
+                  ].map(([l, v]) => (
+                    <div
+                      key={l}
+                      style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', padding: '0.3rem 0', borderBottom: '1px solid var(--border)' }}
+                    >
+                      <span style={{ color: 'var(--text-muted)' }}>{l}</span>
+                      <span style={{ fontWeight: 600 }}>{v}</span>
+                    </div>
+                  ))}
+                </>
+              ) : (
+                <EmptyState title="No delivery data" message="Webhook delivery stats appear here once your first event fires." />
+              )}
+            </div>
+          </div>
+
+          {/* Workflow Snapshot */}
+          <div className="card">
+            <div className="card-header">
+              <span className="card-title">Workflow Snapshot</span>
+              <button className="btn btn-ghost btn-sm" onClick={() => navigate('/workflow')}>
+                Builder &rsaquo;
+              </button>
+            </div>
+            <div style={{ padding: '16px' }}>
+              <div style={{ display: 'flex', gap: '1rem', marginBottom: '0.75rem' }}>
+                <div style={{ flex: 1, textAlign: 'center', padding: '0.625rem', background: 'var(--bg-secondary)', borderRadius: 6 }}>
+                  <div style={{ fontSize: '1.25rem', fontWeight: 700, color: '#10b981' }}>{activeWorkflows}</div>
+                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Active Workflows</div>
+                </div>
+                <div style={{ flex: 1, textAlign: 'center', padding: '0.625rem', background: 'var(--bg-secondary)', borderRadius: 6 }}>
+                  <div style={{ fontSize: '1.25rem', fontWeight: 700, color: '#4f8ef7' }}>{recentRuns.length}</div>
+                  <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>Recent Runs</div>
+                </div>
+              </div>
+              {recentRuns.length > 0 ? (
+                recentRuns.slice(0, 4).map((run, idx) => (
+                  <div
+                    key={run.id ?? idx}
+                    style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.375rem 0', borderBottom: '1px solid var(--border)', fontSize: '0.8rem' }}
+                  >
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
+                      {run.workflow_name || run.workflow || `Run #${run.id}`}
+                    </span>
+                    <Badge color={run.status === 'completed' ? 'success' : run.status === 'failed' ? 'danger' : run.status === 'running' ? 'primary' : 'secondary'}>
+                      {run.status || 'pending'}
+                    </Badge>
+                  </div>
+                ))
+              ) : (
+                <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>No workflow runs yet</div>
               )}
             </div>
           </div>

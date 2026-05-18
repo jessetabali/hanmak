@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApiQuery, useApiMutation } from '../../hooks/useApi';
 import { apiClient } from '../../api/client';
@@ -39,9 +39,16 @@ export default function TemplateList() {
   const [createName, setCreateName] = useState('');
   const [createDescription, setCreateDescription] = useState('');
   const [createDocumentId, setCreateDocumentId] = useState('');
+  const [uploadFile, setUploadFile] = useState(null);
+  const [uploadDragging, setUploadDragging] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const fileInputRef = useRef(null);
 
   // Delete confirm
   const [confirmDelete, setConfirmDelete] = useState({ open: false, id: null, name: '' });
+  const [previewModal, setPreviewModal] = useState(null); // { name, documentId }
+  const [previewPages, setPreviewPages] = useState([]);
+  const [previewLoading, setPreviewLoading] = useState(false);
 
   // Create envelope from template
   const [envelopeFromTemplate, setEnvelopeFromTemplate] = useState(null);
@@ -147,17 +154,69 @@ export default function TemplateList() {
 
   const handleStatusChange = (e) => { setStatus(e.target.value); setPage(1); };
 
+  const openPreview = useCallback(async (t) => {
+    const version = t.versions?.[0];
+    const documentId = version?.document;
+    setPreviewModal({ name: t.name, documentId });
+    setPreviewPages([]);
+    if (!documentId) return;
+    setPreviewLoading(true);
+    try {
+      const { data } = await apiClient.get(EP.DOCUMENT(documentId));
+      setPreviewPages(data.pages?.filter(p => p.image_url) ?? []);
+    } catch { /* no pages available */ }
+    finally { setPreviewLoading(false); }
+  }, []);
+
   const resetCreateForm = () => {
     setCreateName('');
     setCreateDescription('');
     setCreateDocumentId('');
+    setUploadFile(null);
+    setUploadDragging(false);
   };
 
-  const handleCreateSubmit = () => {
+  const handleCreateSubmit = async () => {
     if (!createName.trim()) { toast.error('Template name is required'); return; }
-    const payload = { name: createName.trim(), description: createDescription.trim() };
-    if (createDocumentId) payload.document = Number(createDocumentId);
-    createMutation.mutate(payload);
+    setCreating(true);
+    try {
+      let docId = createDocumentId ? Number(createDocumentId) : null;
+
+      // Upload PDF first if the user dropped/selected one
+      if (uploadFile) {
+        const orgId = localStorage.getItem('HANMAK_ORGANIZATION_ID');
+        const fd = new FormData();
+        fd.append('file', uploadFile);
+        fd.append('title', uploadFile.name.replace(/\.[^.]+$/, ''));
+        fd.append('mime_type', uploadFile.type || 'application/pdf');
+        if (orgId) fd.append('organization', orgId);
+        const docRes = await apiClient.post(EP.DOCUMENTS, fd, {
+          headers: { 'Content-Type': 'multipart/form-data' },
+        });
+        docId = docRes.data.id;
+        // Kick off processing in background (non-blocking)
+        apiClient.post(EP.DOCUMENT_PROCESS(docId), {}).catch(() => {});
+      }
+
+      const orgId = localStorage.getItem('HANMAK_ORGANIZATION_ID');
+      const payload = {
+        name: createName.trim(),
+        description: createDescription.trim(),
+        organization: orgId ? Number(orgId) : undefined,
+      };
+      if (docId) payload.document = docId;
+
+      const res = await apiClient.post(EP.TEMPLATES, payload);
+      toast.success('Template created');
+      setCreateModal(false);
+      resetCreateForm();
+      // Pass docId in URL so FormBuilder loads the right document
+      navigate(docId ? `/form-builder/${res.data.id}?doc=${docId}` : `/form-builder/${res.data.id}`);
+    } catch (e) {
+      toast.error(e.response?.data?.detail || e.message);
+    } finally {
+      setCreating(false);
+    }
   };
 
   const resetEnvForm = () => {
@@ -169,8 +228,10 @@ export default function TemplateList() {
     if (!envName.trim()) { toast.error('Envelope name is required'); return; }
     const validRecipients = envRecipients.filter(r => r.name.trim() && r.email.trim());
     if (!validRecipients.length) { toast.error('At least one recipient with name and email is required'); return; }
+    const orgId = localStorage.getItem('HANMAK_ORGANIZATION_ID');
     createEnvelopeMutation.mutate({
       name: envName.trim(),
+      organization: orgId ? Number(orgId) : undefined,
       template: envelopeFromTemplate?.id,
       recipients: validRecipients.map((r, i) => ({ name: r.name.trim(), email: r.email.trim(), routing_order: i + 1 })),
     });
@@ -292,6 +353,13 @@ export default function TemplateList() {
                   {/* Actions */}
                   <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginTop: 'auto', paddingTop: '0.5rem', borderTop: '1px solid var(--border)' }}>
                     <button
+                      className="btn btn-ghost btn-sm"
+                      onClick={() => openPreview(t)}
+                      title="Preview document pages"
+                    >
+                      Preview
+                    </button>
+                    <button
                       className="btn btn-primary btn-sm"
                       onClick={() => navigate(`/form-builder/${t.id}`)}
                       title="Open in form builder"
@@ -372,15 +440,15 @@ export default function TemplateList() {
         size="lg"
         footer={
           <>
-            <button className="btn btn-ghost" onClick={() => { setCreateModal(false); resetCreateForm(); }}>
+            <button className="btn btn-ghost" onClick={() => { setCreateModal(false); resetCreateForm(); }} disabled={creating}>
               Cancel
             </button>
             <button
               className="btn btn-primary"
               onClick={handleCreateSubmit}
-              disabled={createMutation.isPending}
+              disabled={creating}
             >
-              {createMutation.isPending ? 'Creating…' : 'Create & Setup'}
+              {creating ? 'Creating…' : 'Create & Open Builder'}
             </button>
           </>
         }
@@ -393,6 +461,7 @@ export default function TemplateList() {
               placeholder="e.g. Standard NDA"
               value={createName}
               onChange={e => setCreateName(e.target.value)}
+              autoFocus
             />
           </div>
           <div className="form-group">
@@ -400,30 +469,92 @@ export default function TemplateList() {
             <textarea
               className="form-input"
               placeholder="Briefly describe what this template is for..."
-              rows={3}
+              rows={2}
               value={createDescription}
               onChange={e => setCreateDescription(e.target.value)}
             />
           </div>
-          {documents.length > 0 && (
+
+          {/* PDF upload drop zone */}
+          <div className="form-group">
+            <label className="form-label">Upload PDF</label>
+            <div
+              onDragOver={e => { e.preventDefault(); setUploadDragging(true); }}
+              onDragLeave={() => setUploadDragging(false)}
+              onDrop={e => {
+                e.preventDefault();
+                setUploadDragging(false);
+                const f = e.dataTransfer.files?.[0];
+                if (f) { setUploadFile(f); setCreateDocumentId(''); }
+              }}
+              onClick={() => fileInputRef.current?.click()}
+              style={{
+                border: `2px dashed ${uploadDragging ? 'var(--primary)' : uploadFile ? 'var(--success)' : 'var(--border)'}`,
+                borderRadius: 8,
+                padding: '1.25rem',
+                textAlign: 'center',
+                cursor: 'pointer',
+                background: uploadDragging ? 'rgba(79,142,247,0.05)' : uploadFile ? 'rgba(34,197,94,0.04)' : 'var(--bg-secondary)',
+                transition: 'border-color 0.15s, background 0.15s',
+              }}
+            >
+              {uploadFile ? (
+                <div>
+                  <div style={{ fontSize: '1.5rem', marginBottom: '0.25rem' }}>📄</div>
+                  <div style={{ fontWeight: 600, fontSize: '0.875rem', color: 'var(--success)' }}>{uploadFile.name}</div>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>
+                    {(uploadFile.size / 1024 / 1024).toFixed(2)} MB — click to change
+                  </div>
+                  <button
+                    className="btn btn-ghost btn-sm"
+                    style={{ marginTop: '0.5rem', fontSize: '0.75rem', color: 'var(--danger)' }}
+                    onClick={e => { e.stopPropagation(); setUploadFile(null); }}
+                  >
+                    ✕ Remove
+                  </button>
+                </div>
+              ) : (
+                <div>
+                  <div style={{ fontSize: '1.75rem', marginBottom: '0.375rem', color: 'var(--text-muted)' }}>⬆</div>
+                  <div style={{ fontWeight: 600, fontSize: '0.875rem' }}>Drop a PDF here or click to browse</div>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>PDF, DOCX · Max 50 MB</div>
+                </div>
+              )}
+            </div>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+              style={{ display: 'none' }}
+              onChange={e => {
+                const f = e.target.files?.[0];
+                if (f) { setUploadFile(f); setCreateDocumentId(''); }
+              }}
+            />
+          </div>
+
+          {/* OR: pick an existing document */}
+          {documents.length > 0 && !uploadFile && (
             <div className="form-group">
-              <label className="form-label">Starting Document (optional)</label>
+              <label className="form-label" style={{ color: 'var(--text-muted)', fontSize: '0.8125rem' }}>
+                — or select an existing document —
+              </label>
               <select className="form-input" value={createDocumentId} onChange={e => setCreateDocumentId(e.target.value)}>
-                <option value="">No document — upload in builder</option>
+                <option value="">None</option>
                 {documents.map(doc => (
                   <option key={doc.id} value={doc.id}>
                     {doc.name || doc.original_filename || doc.filename || `Document #${doc.id}`}
                   </option>
                 ))}
               </select>
-              <p style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', marginTop: '0.25rem' }}>
-                You can also upload a document in the form builder after creation.
-              </p>
             </div>
           )}
-          <div className="alert alert-warning" style={{ fontSize: '0.8125rem' }}>
-            After creating, you will be taken to the form builder to add signing fields and configure parties.
-          </div>
+
+          {!uploadFile && !createDocumentId && (
+            <p style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', margin: 0 }}>
+              No document is required — you can place fields on a blank canvas in the builder.
+            </p>
+          )}
         </div>
       </Modal>
 
@@ -506,6 +637,37 @@ export default function TemplateList() {
         confirmLabel="Delete"
         danger
       />
+
+      {/* Document page preview modal */}
+      <Modal
+        open={!!previewModal}
+        onClose={() => { setPreviewModal(null); setPreviewPages([]); }}
+        title={previewModal ? `Preview — ${previewModal.name}` : ''}
+        size="lg"
+      >
+        {previewLoading ? (
+          <Spinner center />
+        ) : previewPages.length > 0 ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', maxHeight: '70vh', overflowY: 'auto' }}>
+            {previewPages.map((p, i) => (
+              <div key={p.id || i} style={{ textAlign: 'center' }}>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.25rem' }}>Page {p.page_number || i + 1}</div>
+                <img
+                  src={p.image_url}
+                  alt={`Page ${p.page_number || i + 1}`}
+                  style={{ maxWidth: '100%', border: '1px solid var(--border)', borderRadius: 4 }}
+                />
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>
+            {previewModal?.documentId
+              ? 'No page images available for this document.'
+              : 'No document attached to this template yet. Open the form builder to upload one.'}
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }

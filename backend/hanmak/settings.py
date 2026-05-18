@@ -181,7 +181,7 @@ EMAIL_BACKEND = env('EMAIL_BACKEND', default='django.core.mail.backends.smtp.Ema
 EMAIL_HOST = env('EMAIL_HOST', default='localhost')
 EMAIL_PORT = env.int('EMAIL_PORT', default=1025)
 DEFAULT_FROM_EMAIL = env('DEFAULT_FROM_EMAIL', default='no-reply@hanmak.local')
-HANMAK_PUBLIC_BASE_URL = env('HANMAK_PUBLIC_BASE_URL', default='http://localhost:8000')
+HANMAK_PUBLIC_BASE_URL = env('HANMAK_PUBLIC_BASE_URL', default='http://localhost:8080')
 HANMAK_LOGIN_LOCKOUT_FAILURES = env.int('HANMAK_LOGIN_LOCKOUT_FAILURES', default=5)
 HANMAK_LOGIN_LOCKOUT_MINUTES = env.int('HANMAK_LOGIN_LOCKOUT_MINUTES', default=15)
 HANMAK_EMAIL_BOUNCE_WEBHOOK_SECRET = env('HANMAK_EMAIL_BOUNCE_WEBHOOK_SECRET', default='')

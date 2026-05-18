@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { useErrorLogStore } from '../store/errorLogStore';
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api/v1';
 
@@ -49,7 +50,7 @@ apiClient.interceptors.response.use(
 
       try {
         const refresh = localStorage.getItem('HANMAK_REFRESH_TOKEN');
-        const { data } = await axios.post(`${BASE_URL}/token/refresh/`, { refresh });
+        const { data } = await axios.post(`${BASE_URL}/auth/refresh/`, { refresh });
         localStorage.setItem('HANMAK_ACCESS_TOKEN', data.access);
         apiClient.defaults.headers.common.Authorization = `Bearer ${data.access}`;
         processQueue(null, data.access);
@@ -63,6 +64,31 @@ apiClient.interceptors.response.use(
         return Promise.reject(refreshError);
       } finally {
         isRefreshing = false;
+      }
+    }
+
+    // Improve error.message so components using `e.message` see the actual
+    // backend validation error instead of the generic axios status string.
+    if (error.response?.data && !error.response.data.detail) {
+      const d = error.response.data;
+      if (Array.isArray(d) && d.length) {
+        error.message = d.join('; ');
+      } else if (d && typeof d === 'object') {
+        const parts = Object.entries(d).map(
+          ([k, v]) => `${k}: ${Array.isArray(v) ? v.join(', ') : String(v)}`
+        );
+        if (parts.length) error.message = parts.join(' | ');
+      } else if (typeof d === 'string' && d) {
+        error.message = d;
+      }
+    }
+
+    // Persist to error log (skip 401 — those are handled by token refresh)
+    if (error.response?.status !== 401) {
+      try {
+        useErrorLogStore.getState().logApiError(error, error.config);
+      } catch {
+        // non-fatal — don't let logging break the app
       }
     }
 

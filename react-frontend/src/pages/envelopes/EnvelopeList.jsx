@@ -56,6 +56,16 @@ export default function EnvelopeList() {
   // Drawer for viewing single envelope
   const [drawerEnvelope, setDrawerEnvelope] = useState(null);
   const [drawerLoading, setDrawerLoading] = useState(false);
+  const [previewDoc, setPreviewDoc] = useState(null); // { name, pages[] }
+
+  // Fetch envelope-documents when drawer is open
+  const { data: envelopeDocsData } = useApiQuery(
+    ['envelope-documents', drawerEnvelope?.id],
+    EP.ENVELOPE_DOCUMENTS,
+    { envelope: drawerEnvelope?.id, page_size: 20 },
+    { enabled: !!drawerEnvelope?.id }
+  );
+  const envelopeDocs = envelopeDocsData?.results ?? [];
 
   // Create envelope modal
   const [createModal, setCreateModal] = useState(false);
@@ -214,9 +224,18 @@ export default function EnvelopeList() {
     }
   };
 
-  const handleDownload = (id) => {
-    const base = apiClient.defaults.baseURL || '/api/v1';
-    window.open(`${base}${EP.ENVELOPE_DOWNLOAD(id)}`, '_blank');
+  const handleDownload = async (id, name) => {
+    try {
+      const res = await apiClient.get(EP.ENVELOPE_DOWNLOAD(id), { responseType: 'blob' });
+      const url = URL.createObjectURL(res.data);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${name || `envelope-${id}`}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      toast.error('Download failed');
+    }
   };
 
   const handleSend = (id) => sendMutation.mutate(id);
@@ -261,8 +280,10 @@ export default function EnvelopeList() {
     if (!validRecipients.length) { toast.error('At least one recipient with name and email is required'); return; }
     const missingEmail = createRecipients.find(r => r.name.trim() && !r.email.trim());
     if (missingEmail) { toast.error(`Email is required for ${missingEmail.name}`); return; }
+    const orgId = localStorage.getItem('HANMAK_ORGANIZATION_ID');
     const payload = {
       name: createName.trim(),
+      organization: orgId ? Number(orgId) : undefined,
       recipients: validRecipients.map((r, i) => ({ name: r.name.trim(), email: r.email.trim(), routing_order: i + 1 })),
     };
     if (createTemplateId) payload.template = Number(createTemplateId);
@@ -474,7 +495,7 @@ export default function EnvelopeList() {
                           </button>
                         )}
                         {(isCompleted(env) || isActionable(env)) && (
-                          <button className="btn btn-ghost btn-sm" title="Download" onClick={() => handleDownload(env.id)}>
+                          <button className="btn btn-ghost btn-sm" title="Download" onClick={() => handleDownload(env.id, env.name)}>
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                           </button>
                         )}
@@ -520,7 +541,7 @@ export default function EnvelopeList() {
                 </button>
               )}
               {(isCompleted(drawerEnvelope) || isActionable(drawerEnvelope)) && (
-                <button className="btn btn-ghost btn-sm" onClick={() => handleDownload(drawerEnvelope.id)}>
+                <button className="btn btn-ghost btn-sm" onClick={() => handleDownload(drawerEnvelope.id, drawerEnvelope.name)}>
                   Download PDF
                 </button>
               )}
@@ -585,16 +606,46 @@ export default function EnvelopeList() {
               </div>
             )}
 
-            {/* Documents */}
-            {(drawerEnvelope.documents || []).length > 0 && (
+            {/* Documents with page previews */}
+            {envelopeDocs.length > 0 && (
               <div className="card" style={{ padding: '1rem' }}>
                 <div className="section-title" style={{ marginBottom: '0.75rem' }}>Documents</div>
-                {drawerEnvelope.documents.map((doc, i) => (
-                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.4rem 0' }}>
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-                    <span style={{ fontSize: '0.875rem' }}>{doc.name || doc.filename || `Document ${i + 1}`}</span>
-                  </div>
-                ))}
+                {envelopeDocs.map((ed, i) => {
+                  const doc = ed.document_detail || ed;
+                  const pages = doc.pages || [];
+                  const firstPage = pages.find(p => p.image_url);
+                  return (
+                    <div key={ed.id || i} style={{ marginBottom: '0.75rem' }}>
+                      <div style={{ fontSize: '0.875rem', fontWeight: 600, marginBottom: '0.4rem' }}>
+                        {doc.title || doc.name || `Document ${i + 1}`}
+                        {doc.page_count ? <span style={{ fontWeight: 400, color: 'var(--text-muted)', marginLeft: 6 }}>{doc.page_count} pages</span> : null}
+                      </div>
+                      {firstPage ? (
+                        <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+                          {pages.filter(p => p.image_url).slice(0, 4).map((p, pi) => (
+                            <img
+                              key={p.id || pi}
+                              src={p.image_url}
+                              alt={`Page ${p.page_number || pi + 1}`}
+                              onClick={() => setPreviewDoc({ name: doc.title || doc.name || `Document ${i + 1}`, pages })}
+                              style={{ width: 72, height: 100, objectFit: 'cover', objectPosition: 'top', border: '1px solid var(--border)', borderRadius: 4, cursor: 'pointer' }}
+                            />
+                          ))}
+                          {pages.filter(p => p.image_url).length > 4 && (
+                            <div
+                              onClick={() => setPreviewDoc({ name: doc.title || doc.name || `Document ${i + 1}`, pages })}
+                              style={{ width: 72, height: 100, border: '1px solid var(--border)', borderRadius: 4, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.75rem', color: 'var(--text-muted)', cursor: 'pointer', background: 'var(--bg-surface)' }}
+                            >
+                              +{pages.filter(p => p.image_url).length - 4} more
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <div style={{ fontSize: '0.8125rem', color: 'var(--text-muted)' }}>No page previews available</div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>
@@ -740,6 +791,32 @@ export default function EnvelopeList() {
         confirmLabel={bulkConfirm.label}
         danger={bulkConfirm.action.includes('delete')}
       />
+
+      {/* Document page preview modal */}
+      {previewDoc && (
+        <Modal
+          open={!!previewDoc}
+          onClose={() => setPreviewDoc(null)}
+          title={previewDoc.name}
+          size="lg"
+        >
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', maxHeight: '70vh', overflowY: 'auto' }}>
+            {previewDoc.pages.filter(p => p.image_url).map((p, i) => (
+              <div key={p.id || i} style={{ textAlign: 'center' }}>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.25rem' }}>Page {p.page_number || i + 1}</div>
+                <img
+                  src={p.image_url}
+                  alt={`Page ${p.page_number || i + 1}`}
+                  style={{ maxWidth: '100%', border: '1px solid var(--border)', borderRadius: 4 }}
+                />
+              </div>
+            ))}
+            {previewDoc.pages.filter(p => p.image_url).length === 0 && (
+              <p style={{ color: 'var(--text-muted)', textAlign: 'center' }}>No page images available for this document.</p>
+            )}
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }

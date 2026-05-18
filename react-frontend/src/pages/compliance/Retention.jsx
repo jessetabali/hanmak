@@ -15,6 +15,7 @@ const RESOURCE_TYPES = [
   { value: 'documents', label: 'Documents' },
   { value: 'audit_events', label: 'Audit Events' },
   { value: 'signatures', label: 'Signatures' },
+  { value: 'all', label: 'All Resources' },
 ];
 
 const ACTIONS = [
@@ -26,7 +27,7 @@ const ACTIONS = [
 export default function Retention() {
   const toast = useToast();
   const [createModal, setCreateModal] = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState(null); // holds id to delete
+  const [confirmDelete, setConfirmDelete] = useState(null); // holds policy id to delete
   const [form, setForm] = useState({
     name: '',
     description: '',
@@ -36,7 +37,11 @@ export default function Retention() {
   });
 
   const { data, isLoading, refetch } = useApiQuery(['retention-policies'], EP.RETENTION_POLICIES);
-  const policies = data?.results ?? [];
+  const policies = data?.results ?? data ?? [];
+
+  const total = policies.length;
+  const active = policies.filter((p) => p.is_active).length;
+  const inactive = policies.filter((p) => !p.is_active).length;
 
   const createMutation = useApiMutation(
     (payload) => apiClient.post(EP.RETENTION_POLICIES, payload),
@@ -71,18 +76,20 @@ export default function Retention() {
 
   const handleCreate = useCallback(() => {
     if (!form.name.trim()) { toast.error('Name is required'); return; }
-    if (!form.retention_days || form.retention_days < 1) { toast.error('Retention period must be at least 1 day'); return; }
+    if (!form.retention_days || Number(form.retention_days) < 1) { toast.error('Retention period must be at least 1 day'); return; }
+    const orgId = localStorage.getItem('HANMAK_ORGANIZATION_ID');
     createMutation.mutate({
       name: form.name.trim(),
       description: form.description,
       resource_type: form.resource_type,
       retention_days: Number(form.retention_days),
       action_after: form.action_after,
+      organization: orgId ? Number(orgId) : undefined,
     });
   }, [form, createMutation, toast]);
 
-  const actionLabel = (val) => ACTIONS.find(a => a.value === val)?.label || val;
-  const resourceLabel = (val) => RESOURCE_TYPES.find(r => r.value === val)?.label || val;
+  const actionLabel = (val) => ACTIONS.find((a) => a.value === val)?.label || val;
+  const resourceLabel = (val) => RESOURCE_TYPES.find((r) => r.value === val)?.label || val;
 
   return (
     <div>
@@ -97,6 +104,20 @@ export default function Retention() {
         </div>
       </div>
 
+      {/* Stats */}
+      <div className="stats-grid" style={{ marginBottom: '1.5rem' }}>
+        {[
+          { label: 'Total', value: total },
+          { label: 'Active', value: active, color: active > 0 ? 'var(--success)' : undefined },
+          { label: 'Inactive', value: inactive },
+        ].map(({ label, value, color }) => (
+          <div key={label} className="stat-card">
+            <div className="stat-label">{label}</div>
+            <div className="stat-value" style={color ? { color } : undefined}>{value}</div>
+          </div>
+        ))}
+      </div>
+
       {isLoading ? (
         <Spinner center />
       ) : policies.length === 0 ? (
@@ -108,7 +129,7 @@ export default function Retention() {
               <tr>
                 <th>Name</th>
                 <th>Resource Type</th>
-                <th>Retention Days</th>
+                <th>Retention</th>
                 <th>Action After</th>
                 <th>Status</th>
                 <th>Created</th>
@@ -120,7 +141,9 @@ export default function Retention() {
                 <tr key={policy.id}>
                   <td>
                     <div style={{ fontWeight: 600 }}>{policy.name}</div>
-                    {policy.description && <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{policy.description}</div>}
+                    {policy.description && (
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{policy.description}</div>
+                    )}
                   </td>
                   <td>{resourceLabel(policy.resource_type)}</td>
                   <td>{policy.retention_days} days</td>
@@ -173,28 +196,57 @@ export default function Retention() {
       >
         <div className="form-group">
           <label className="form-label">Name <span style={{ color: 'var(--danger)' }}>*</span></label>
-          <input className="form-input" placeholder="e.g. 7-Year Envelope Archive" value={form.name} onChange={(e) => setForm(f => ({ ...f, name: e.target.value }))} />
+          <input
+            className="form-input"
+            placeholder="e.g. 7-Year Envelope Archive"
+            value={form.name}
+            onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+          />
         </div>
         <div className="form-group">
           <label className="form-label">Description</label>
-          <textarea className="form-input" rows={2} placeholder="Brief description" value={form.description} onChange={(e) => setForm(f => ({ ...f, description: e.target.value }))} />
+          <textarea
+            className="form-input"
+            rows={2}
+            placeholder="Brief description"
+            value={form.description}
+            onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
+          />
         </div>
-        <div className="form-row" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
           <div className="form-group">
             <label className="form-label">Resource Type</label>
-            <select className="form-input" value={form.resource_type} onChange={(e) => setForm(f => ({ ...f, resource_type: e.target.value }))}>
-              {RESOURCE_TYPES.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
+            <select
+              className="form-input"
+              value={form.resource_type}
+              onChange={(e) => setForm((f) => ({ ...f, resource_type: e.target.value }))}
+            >
+              {RESOURCE_TYPES.map((r) => (
+                <option key={r.value} value={r.value}>{r.label}</option>
+              ))}
             </select>
           </div>
           <div className="form-group">
-            <label className="form-label">Retention Period (days)</label>
-            <input className="form-input" type="number" min={1} value={form.retention_days} onChange={(e) => setForm(f => ({ ...f, retention_days: e.target.value }))} />
+            <label className="form-label">Retention Period (days) <span style={{ color: 'var(--danger)' }}>*</span></label>
+            <input
+              className="form-input"
+              type="number"
+              min={1}
+              value={form.retention_days}
+              onChange={(e) => setForm((f) => ({ ...f, retention_days: e.target.value }))}
+            />
           </div>
         </div>
         <div className="form-group">
           <label className="form-label">Action After Retention</label>
-          <select className="form-input" value={form.action_after} onChange={(e) => setForm(f => ({ ...f, action_after: e.target.value }))}>
-            {ACTIONS.map(a => <option key={a.value} value={a.value}>{a.label}</option>)}
+          <select
+            className="form-input"
+            value={form.action_after}
+            onChange={(e) => setForm((f) => ({ ...f, action_after: e.target.value }))}
+          >
+            {ACTIONS.map((a) => (
+              <option key={a.value} value={a.value}>{a.label}</option>
+            ))}
           </select>
         </div>
       </Modal>

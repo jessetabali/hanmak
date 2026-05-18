@@ -69,10 +69,11 @@ def render_setup_email(*, organization, user, setup_url):
 
 
 def absolute_signing_url(request, session):
-    signing_path = getattr(settings, 'HANMAK_SIGNING_APP_PATH', '/mock/')
-    if request:
-        return request.build_absolute_uri(f'{signing_path}?token={session.token}')
-    return f'{getattr(settings, "HANMAK_PUBLIC_BASE_URL", "http://localhost:8000")}{signing_path}?token={session.token}'
+    # Always use the configured public base URL so the link points to the
+    # frontend (nginx), not the Django backend. request.build_absolute_uri
+    # would produce a backend-port URL which recipients cannot use.
+    base = settings.HANMAK_PUBLIC_BASE_URL.rstrip('/')
+    return f'{base}/sign/{session.token}'
 
 
 def render_email(kind, envelope, recipient, signing_url):

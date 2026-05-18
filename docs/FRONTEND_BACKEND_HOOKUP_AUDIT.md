@@ -1,8 +1,22 @@
 # Frontend / Backend Hookup Audit
 
-Last updated: 2026-05-16
+Last updated: 2026-05-18
 
 This audit compares the visible mock frontend modules with the backend endpoints currently exposed under `/api/v1/`.
+
+## React Frontend Hookup Status (2026-05-18)
+
+The React production frontend (`react-frontend/`) is fully implemented. All 44 pages call live backend endpoints via the centralized `EP` registry (`src/api/endpoints.js`). Key integration notes:
+
+| Concern | Implementation |
+|---|---|
+| Auth endpoints | `EP.TOKEN_OBTAIN = '/auth/login/'`, `EP.TOKEN_REFRESH = '/auth/refresh/'` |
+| Org scoping | All create mutations include `organization: Number(localStorage.getItem('HANMAK_ORGANIZATION_ID'))` |
+| Authenticated file downloads | Blob pattern: `apiClient.get(url, {responseType:'blob'})` → `URL.createObjectURL()` → programmatic anchor click (bypasses browser's unauthenticated `<a href>`) |
+| Media files | `/media/` served by Nginx without auth — direct `<img src>` and `<a href>` work for page images |
+| Evidence bundles | POST requires `{envelope: id}` — frontend uses envelope picker modal; `{name, description, audit_event_ids}` schema is NOT used |
+| Settings | All settings POSTs are upserts via `SingletonSettingsViewSet` — always send full payload including `organization` |
+| Toast | `useToast()` returns `{ showToast, dismiss, success, error, warning, info }` — all pages use shorthand methods |
 
 ## Coverage Matrix
 

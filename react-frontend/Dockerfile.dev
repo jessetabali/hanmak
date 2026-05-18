@@ -1,0 +1,20 @@
+# Use an official lightweight Node image
+FROM node:20-alpine
+
+# Set the working directory inside the container
+WORKDIR /app
+
+# Copy package management files first to leverage Docker caching layers
+COPY package*.json ./
+
+# Install project dependencies
+RUN npm install
+
+# Copy the rest of your frontend application files
+COPY . .
+
+# Expose Vite's default development server port
+EXPOSE 5173
+
+# Run the Vite dev server and bind it to 0.0.0.0 so host machine can access it
+CMD ["npm", "run", "dev", "--", "--host"]

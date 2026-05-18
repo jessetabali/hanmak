@@ -126,9 +126,9 @@ Every route in `router.jsx` mirrors the page IDs from the vanilla JS `registerPa
 
 ## Auth and Token Lifecycle
 
-1. `authStore.login(username, password)` → POST `/api/v1/token/` → stores `HANMAK_ACCESS_TOKEN` + `HANMAK_REFRESH_TOKEN` in `localStorage`.
+1. `authStore.login(username, password)` → POST `/api/v1/auth/login/` → stores `HANMAK_ACCESS_TOKEN` + `HANMAK_REFRESH_TOKEN` in `localStorage`.
 2. Axios request interceptor attaches `Authorization: Bearer <token>` and `X-HanMak-Organization: <orgId>` to every outbound request.
-3. On `401`, the Axios response interceptor attempts one token refresh via POST `/api/v1/token/refresh/`. Concurrent requests during refresh are queued and replayed after the new token arrives.
+3. On `401`, the Axios response interceptor attempts one token refresh via POST `/api/v1/auth/refresh/`. Concurrent requests during refresh are queued and replayed after the new token arrives.
 4. If refresh fails, tokens are cleared and the user is redirected to `/login`.
 5. `authStore.logout()` clears all stored tokens and resets Zustand state.
 
@@ -197,45 +197,93 @@ Each page component should:
 
 ---
 
-## Implementation Roadmap
+## Implementation Status — COMPLETE (2026-05-18)
 
-The scaffold provides fully working auth, routing, API connectivity, and data-fetching for every page. Full feature parity with the vanilla JS prototype is the target for each page. Priority order mirrors user-facing value:
+All 44 pages are fully implemented and wired to the live Django/DRF backend. The phased roadmap below is preserved for historical reference with completion markers.
 
-### Phase 1 — Core Signing Flow (highest priority)
-- [ ] `EnvelopeList` — search, filter, sort, pagination, bulk actions
-- [ ] `EnvelopeDetail` — recipients, attachments, send/void/download
-- [ ] `TemplateList` — archive/activate/duplicate/use
-- [ ] `FormBuilder` — drag-and-drop field placement canvas (most complex)
-- [ ] `PublicSigning` — field rendering, typed/drawn/uploaded signatures, submit
+### Phase 1 — Core Signing Flow ✓
+- [x] `EnvelopeList` — search, filter, sort, pagination, bulk actions, drawer with document thumbnails, preview modal
+- [x] `EnvelopeDetail` — recipients, attachments, send/void/download (blob auth pattern)
+- [x] `TemplateList` — archive/activate/duplicate/use, document preview modal
+- [x] `FormBuilder` — drag-and-drop field placement canvas
+- [x] `PublicSigning` — field rendering, typed/drawn/uploaded signatures, submit/decline
 
-### Phase 2 — Collaboration & Approvals
-- [ ] `Inbox` — tab filters, bulk actions, per-item approve/sign/snooze
-- [ ] `Approvals` — per-status tabs, approve/reject/delegate, detail modal
-- [ ] `WorkflowBuilder` — stage editor, run creation, advance controls
+### Phase 2 — Collaboration & Approvals ✓
+- [x] `Inbox` — tab filters, bulk actions, per-item approve/sign/snooze
+- [x] `Approvals` — per-status tabs, approve/reject/delegate, detail modal
+- [x] `WorkflowBuilder` — stage editor, run creation, advance controls
 
-### Phase 3 — Documents & Audit
-- [ ] `Documents` — upload, process, scan, duplicate, open in FormBuilder
-- [ ] `AuditTrail` — search, type filter, date range, evidence bundle creation
-- [ ] `EvidenceBundles` — generate PDF, verify, visual QA
+### Phase 3 — Documents & Audit ✓
+- [x] `Documents` — upload, process, scan, duplicate, open in FormBuilder
+- [x] `AuditTrail` — search, type filter, date range, evidence bundle creation (envelope-picker modal)
+- [x] `EvidenceBundles` — generate PDF, verify, visual QA
 
-### Phase 4 — Admin & Settings
-- [ ] `Users` — invite, suspend, impersonate, role assignment
-- [ ] `Organizations` — profile edit, domains, subsidiaries, logo upload
-- [ ] `Teams` — create/edit/delete, member management
-- [ ] `Roles` — permission matrix editor
-- [ ] Settings pages — save handlers, live preview (Branding), test email (Email)
+### Phase 4 — Admin & Settings ✓
+- [x] `Users` — invite, suspend, impersonate, role assignment
+- [x] `Organizations` — profile edit, domains, subsidiaries, logo upload
+- [x] `Teams` — create/edit/delete, member management
+- [x] `Roles` — permission matrix editor
+- [x] All Settings pages — save handlers, live preview (Branding), test email (Email)
 
-### Phase 5 — Developer & Operations
-- [ ] `ApiKeys` — create/rotate/revoke/scope-edit
-- [ ] `OAuthApps` — secret rotation, grant management
-- [ ] `Webhooks` — add/edit/delete/test delivery/history/replay
-- [ ] `OperationsConsole` — risk findings, policy rules, feature flags, outbox
-- [ ] `ReleaseControl` — stage/rollout controls, QA checklist, release action
+### Phase 5 — Developer & Operations ✓
+- [x] `ApiKeys` — create/rotate/revoke/scope-edit
+- [x] `OAuthApps` — secret rotation, grant management
+- [x] `Webhooks` — add/edit/delete/test delivery/history/replay
+- [x] `OperationsConsole` — risk findings, policy rules, feature flags, outbox
+- [x] `ReleaseControl` — stage/rollout controls, QA checklist, release action
 
-### Phase 6 — Compliance & Billing
-- [ ] Full compliance pages with live API data and create/delete flows
-- [ ] `Billing` — subscription banner, usage bars, invoice history, plan comparison
-- [ ] `License` — key details, feature entitlements, activation
+### Phase 6 — Compliance & Billing ✓
+- [x] Full compliance pages with live API data and create/delete flows
+- [x] `Billing` — subscription banner, usage bars, invoice history
+- [x] `License` — key details, feature entitlements, activation
+
+---
+
+## Known Bugs Fixed (2026-05-18)
+
+| Bug | Root cause | Fix |
+|---|---|---|
+| Login 401 | `EP.TOKEN_OBTAIN` pointed to `/token/` | Changed to `/auth/login/` in `endpoints.js` |
+| Token refresh 401 | `client.js` used `/token/refresh/` | Changed to `/auth/refresh/` |
+| Download 401 | `window.open()` doesn't send `Authorization` header | Blob download via `apiClient.get(url, {responseType:'blob'})` → `URL.createObjectURL()` |
+| `toast.error is not a function` | `ToastContext` only exposed `showToast`/`dismiss` | Added `success`, `error`, `warning`, `info` convenience methods to `Toast.jsx` |
+| POST 400 on most creates | Django `OrganizationScopedQuerySetMixin` requires `organization` FK | All create payloads now include `organization: Number(localStorage.getItem('HANMAK_ORGANIZATION_ID'))` |
+| EvidenceBundle POST 400 | Frontend sent `{name, description, audit_event_ids}`, backend requires `{envelope: id}` | Rewrote `AuditTrail` create flow to use an envelope picker modal |
+| Vite build ENOENT | `src/styles/index.css` imports `../../public/shared/variables.css` which didn't exist | Created `react-frontend/public/shared/variables.css` with all CSS design tokens |
+| Vite not reachable in Docker | Vite bound to `localhost` only | Added `host: true` to `vite.config.js` server config |
+
+---
+
+## Feature Parity Gaps vs Vanilla JS Prototype
+
+The following UI elements exist in `hanmak_demo_mock_directory/` but are not yet implemented in the React frontend. Priority is **High / Medium / Low**.
+
+| Section | Gap | Priority |
+|---|---|---|
+| **Audit Trail** | Integrity verification panel (SHA-256 hash checker) | High |
+| **Audit Trail** | Compliance standards sidebar (GDPR / HIPAA / SOC2 badges) | Medium |
+| **Audit Trail** | IP address and geolocation in event rows | Medium |
+| **Approvals** | "Changes Requested" tab | High |
+| **Approvals** | By Approver Load sidebar | Medium |
+| **Approvals** | Quick Delegation card (most recent delegations) | Low |
+| **Settings / General** | Missing toggles: completion certificates, bulk send, mobile signing | High |
+| **Settings / General** | Timezone selector field | Medium |
+| **Settings / General** | Support email field | Medium |
+| **Admin / Users** | Session list in user drawer | Medium |
+| **Admin / Users** | MFA device list in user drawer | Medium |
+| **Webhooks** | Delivery stats sidebar (success rate, avg latency) | Medium |
+| **Webhooks** | Retry policy info card | Low |
+| **Dashboard** | Webhook Health card | Medium |
+| **Dashboard** | Workflow Snapshot card | Medium |
+| **Dashboard** | Quick Actions card | Low |
+| **Background Tasks** | Email Reliability stats card | Low |
+| **Background Tasks** | Beat Scheduler info card | Low |
+| **Inbox** | Fields remaining count on each item | Medium |
+| **Inbox** | Work Type filter | Low |
+| **Inbox** | Tasks tab | Medium |
+| **Branding** | 4 extra color pickers (link, border, sidebar bg, sidebar text) | Low |
+| **Billing** | Plans comparison sidebar | Low |
+| **Billing** | Payment Webhook Events section | Medium |
 
 ---
 

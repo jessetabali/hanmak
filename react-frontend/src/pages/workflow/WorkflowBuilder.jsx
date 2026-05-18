@@ -238,10 +238,12 @@ export default function WorkflowBuilder() {
 
   function submitCreate() {
     if (!createName.trim()) { toast.error('Workflow name is required.'); return; }
+    const orgId = localStorage.getItem('HANMAK_ORGANIZATION_ID');
     createWorkflowMutation.mutate({
       name: createName.trim(),
       description: createDesc,
       status: 'draft',
+      organization: orgId ? Number(orgId) : undefined,
     });
   }
 

@@ -7,6 +7,8 @@ import Login from './pages/Login';
 
 // Public signing (no auth, no shell)
 import PublicSigning from './pages/signing/PublicSigning';
+import AccountSetup from './pages/AccountSetup';
+import AcceptInvite from './pages/AcceptInvite';
 
 // App pages (require auth, rendered inside AppShell)
 import Dashboard from './pages/Dashboard';
@@ -47,6 +49,7 @@ import SSO from './pages/settings/SSO';
 
 import SystemHealth from './pages/system/SystemHealth';
 import BackgroundTasks from './pages/system/BackgroundTasks';
+import ErrorLog from './pages/system/ErrorLog';
 
 import LegalHolds from './pages/compliance/LegalHolds';
 import Retention from './pages/compliance/Retention';
@@ -69,6 +72,8 @@ export const router = createBrowserRouter([
   // Public routes
   { path: '/login', element: <Login /> },
   { path: '/sign/:token', element: <PublicSigning /> },
+  { path: '/account-setup', element: <AccountSetup /> },
+  { path: '/accept-invite', element: <AcceptInvite /> },
 
   // Authenticated app shell
   {
@@ -127,6 +132,7 @@ export const router = createBrowserRouter([
       // System
       { path: 'system/health', element: <SystemHealth /> },
       { path: 'system/tasks', element: <BackgroundTasks /> },
+      { path: 'system/error-log', element: <ErrorLog /> },
 
       // Compliance
       { path: 'compliance/legal-holds', element: <LegalHolds /> },

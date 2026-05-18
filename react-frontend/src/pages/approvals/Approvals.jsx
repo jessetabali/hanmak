@@ -19,6 +19,7 @@ const TABS = [
   { key: 'pending', label: 'Pending' },
   { key: 'approved', label: 'Approved' },
   { key: 'rejected', label: 'Rejected' },
+  { key: 'changes_requested', label: 'Changes Requested' },
   { key: 'delegated', label: 'Delegated' },
   { key: 'all', label: 'All' },
 ];
@@ -531,6 +532,54 @@ export default function Approvals() {
               </div>
             </div>
           )}
+
+          {/* Quick Delegation */}
+          {(() => {
+            const recentDelegations = approvals
+              .filter((a) => a.status === 'delegated' && a.delegated_to)
+              .slice(0, 5);
+            if (recentDelegations.length === 0) return null;
+            return (
+              <div className="card" style={{ padding: '1.25rem' }}>
+                <div style={{ fontWeight: 600, marginBottom: '0.25rem' }}>Quick Delegation</div>
+                <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.75rem' }}>
+                  Recently delegated approvals
+                </p>
+                <div className="flex flex-col gap-2">
+                  {recentDelegations.map((a) => (
+                    <div
+                      key={a.id}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.5rem',
+                        padding: '0.5rem 0',
+                        borderBottom: '1px solid var(--border)',
+                        fontSize: '0.8125rem',
+                      }}
+                    >
+                      <Avatar name={a.delegated_to} size={26} />
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {a.delegated_to}
+                        </div>
+                        <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                          #{a.id} · {formatDate(a.created_at)}
+                        </div>
+                      </div>
+                      <button
+                        className="btn btn-ghost btn-sm"
+                        style={{ flexShrink: 0 }}
+                        onClick={() => openModal('delegate', a)}
+                      >
+                        Re-delegate
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })()}
         </div>
       </div>
 

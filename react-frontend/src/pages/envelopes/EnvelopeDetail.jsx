@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useState, useCallback } from 'react';
+import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useApiQuery, useApiMutation } from '../../hooks/useApi';
 import { apiClient } from '../../api/client';
 import { EP } from '../../api/endpoints';
@@ -23,6 +23,7 @@ export default function EnvelopeDetail() {
   const [voidModal, setVoidModal] = useState(false);
   const [voidReason, setVoidReason] = useState('');
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [remindingId, setRemindingId] = useState(null);
 
   // ---- Queries ----
   const { data: envelope, isLoading, isError } = useApiQuery(
@@ -73,9 +74,47 @@ export default function EnvelopeDetail() {
     }
   );
 
-  const handleDownload = () => {
-    const base = apiClient.defaults.baseURL || '/api/v1';
-    window.open(`${base}${EP.ENVELOPE_DOWNLOAD(id)}`, '_blank');
+  // Gap #3 — per-recipient reminder
+  const handleRemind = useCallback(async (recipientId) => {
+    setRemindingId(recipientId);
+    try {
+      await apiClient.post(EP.RECIPIENT_REMIND(recipientId), {});
+      toast.success('Reminder sent');
+    } catch (e) {
+      toast.error(e.response?.data?.detail || e.message || 'Failed to send reminder');
+    } finally {
+      setRemindingId(null);
+    }
+  }, [toast]);
+
+  // Gap #1 — copy signing link to clipboard
+  const copySigningLink = useCallback((r) => {
+    const url =
+      r.signing_url ||
+      r.signing_link ||
+      (r.token ? `${window.location.origin}/sign/${r.token}` : null);
+    if (!url) {
+      toast.info('Signing link not available for this recipient yet.');
+      return;
+    }
+    navigator.clipboard.writeText(url).then(
+      () => toast.success(`Signing link copied for ${r.name}`),
+      () => toast.error('Could not copy to clipboard'),
+    );
+  }, [toast]);
+
+  const handleDownload = async () => {
+    try {
+      const res = await apiClient.get(EP.ENVELOPE_DOWNLOAD(id), { responseType: 'blob' });
+      const url = URL.createObjectURL(res.data);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `envelope-${id}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      toast.error('Download failed');
+    }
   };
 
   if (isLoading) return <Spinner center />;
@@ -100,6 +139,10 @@ export default function EnvelopeDetail() {
 
   const pct = envelope.completion_percent || 0;
   const documents = envelope.documents || [];
+
+  // Gap #2 — resolve template display name and ID
+  const templateId = envelope.template_id ?? (typeof envelope.template === 'number' ? envelope.template : null);
+  const templateName = envelope.template_name ?? envelope.template_details?.name ?? (templateId ? `Template #${templateId}` : null);
 
   return (
     <div>
@@ -126,9 +169,10 @@ export default function EnvelopeDetail() {
               {sendMutation.isPending ? 'Sending…' : 'Send'}
             </button>
           )}
+          {/* Gap #6 — label reflects completion state */}
           {(isCompleted || isActionable) && (
             <button className="btn btn-ghost" onClick={handleDownload}>
-              Download PDF
+              {isCompleted ? 'Download PDF' : 'Download Partial PDF'}
             </button>
           )}
           {isVoidable && (
@@ -187,12 +231,25 @@ export default function EnvelopeDetail() {
               <span className="detail-label">Name</span>
               <span className="detail-value">{envelope.name}</span>
             </div>
-            {envelope.template && (
+
+            {/* Gap #2 — template shown as name with link to form builder */}
+            {(templateName || envelope.template) && (
               <div className="detail-row">
                 <span className="detail-label">Template</span>
-                <span className="detail-value">{envelope.template}</span>
+                <span className="detail-value" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <span>{templateName || envelope.template}</span>
+                  {templateId && (
+                    <Link
+                      to={`/form-builder/${templateId}`}
+                      style={{ fontSize: '0.75rem', color: 'var(--primary)', whiteSpace: 'nowrap' }}
+                    >
+                      Edit in Builder →
+                    </Link>
+                  )}
+                </span>
               </div>
             )}
+
             {envelope.message && (
               <div className="detail-row">
                 <span className="detail-label">Message</span>
@@ -283,43 +340,79 @@ export default function EnvelopeDetail() {
               <p style={{ fontSize: '0.875rem', color: 'var(--text-muted)', margin: 0 }}>No recipients.</p>
             ) : (
               <div>
-                {recipients.map((r, i) => (
-                  <div
-                    key={r.id || i}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'flex-start',
-                      gap: '0.75rem',
-                      padding: '0.75rem 0',
-                      borderBottom: i < recipients.length - 1 ? '1px solid var(--border)' : 'none',
-                    }}
-                  >
-                    <Avatar name={r.name} size={36} />
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontWeight: 600, fontSize: '0.875rem' }}>{r.name}</div>
-                      <div style={{ fontSize: '0.8125rem', color: 'var(--text-muted)' }}>{r.email}</div>
-                      <div style={{ marginTop: 4, display: 'flex', gap: '0.4rem', flexWrap: 'wrap', alignItems: 'center' }}>
-                        <Badge color="secondary">{titleCase(r.role || 'signer')}</Badge>
-                        <Badge color={statusColor(r.status || 'pending')}>{titleCase(r.status || 'pending')}</Badge>
+                {recipients.map((r, i) => {
+                  const isSigned = ['signed', 'completed'].includes(r.status);
+                  const isDeclined = r.status === 'declined';
+                  const canRemind = isActionable && !isSigned && !isDeclined;
+                  const hasSigningLink = !!(r.signing_url || r.signing_link || r.token);
+
+                  return (
+                    <div
+                      key={r.id || i}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'flex-start',
+                        gap: '0.75rem',
+                        padding: '0.75rem 0',
+                        borderBottom: i < recipients.length - 1 ? '1px solid var(--border)' : 'none',
+                      }}
+                    >
+                      <Avatar name={r.name} size={36} />
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontWeight: 600, fontSize: '0.875rem' }}>{r.name}</div>
+                        <div style={{ fontSize: '0.8125rem', color: 'var(--text-muted)' }}>{r.email}</div>
+                        <div style={{ marginTop: 4, display: 'flex', gap: '0.4rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                          <Badge color="secondary">{titleCase(r.role || 'signer')}</Badge>
+                          <Badge color={statusColor(r.status || 'pending')}>{titleCase(r.status || 'pending')}</Badge>
+                        </div>
+                        {r.signed_at && (
+                          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 4 }}>
+                            Signed {formatDateTime(r.signed_at)}
+                          </div>
+                        )}
+                        {r.viewed_at && !r.signed_at && (
+                          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 4 }}>
+                            Viewed {formatDateTime(r.viewed_at)}
+                          </div>
+                        )}
+                        {r.routing_order !== undefined && (
+                          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 2 }}>
+                            Signing order: {r.routing_order}
+                          </div>
+                        )}
+
+                        {/* Gap #1 & #3 — signing link copy + reminder */}
+                        {(hasSigningLink || canRemind) && (
+                          <div style={{ display: 'flex', gap: '0.375rem', marginTop: '0.5rem', flexWrap: 'wrap' }}>
+                            {/* Gap #1 — copy signing link */}
+                            {hasSigningLink && (isActionable || isCompleted) && (
+                              <button
+                                className="btn btn-ghost btn-sm"
+                                style={{ fontSize: '0.72rem' }}
+                                onClick={() => copySigningLink(r)}
+                                title="Copy signing link to clipboard"
+                              >
+                                🔗 Copy Link
+                              </button>
+                            )}
+                            {/* Gap #3 — send reminder */}
+                            {canRemind && (
+                              <button
+                                className="btn btn-ghost btn-sm"
+                                style={{ fontSize: '0.72rem' }}
+                                disabled={remindingId === r.id}
+                                onClick={() => handleRemind(r.id)}
+                                title="Send a reminder email to this signer"
+                              >
+                                {remindingId === r.id ? 'Sending…' : '✉ Remind'}
+                              </button>
+                            )}
+                          </div>
+                        )}
                       </div>
-                      {r.signed_at && (
-                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 4 }}>
-                          Signed {formatDateTime(r.signed_at)}
-                        </div>
-                      )}
-                      {r.viewed_at && !r.signed_at && (
-                        <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: 4 }}>
-                          Viewed {formatDateTime(r.viewed_at)}
-                        </div>
-                      )}
-                      {r.routing_order !== undefined && (
-                        <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 2 }}>
-                          Signing order: {r.routing_order}
-                        </div>
-                      )}
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>

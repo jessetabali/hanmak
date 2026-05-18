@@ -4,258 +4,397 @@ import { apiClient } from '../../api/client';
 import { EP } from '../../api/endpoints';
 import { useToast } from '../../hooks/useToast';
 import Modal from '../../components/ui/Modal';
-import Spinner from '../../components/ui/Spinner';
-import EmptyState from '../../components/ui/EmptyState';
 import Badge from '../../components/ui/Badge';
+import Spinner from '../../components/ui/Spinner';
 
 const PROVIDERS = [
   { value: 'sendgrid', label: 'SendGrid' },
-  { value: 'postmark', label: 'Postmark' },
-  { value: 'ses', label: 'AWS SES' },
+  { value: 'mailhog', label: 'MailHog' },
   { value: 'smtp', label: 'Custom SMTP' },
+  { value: 'ses', label: 'AWS SES' },
+  { value: 'postmark', label: 'Postmark' },
 ];
 
-const SMTP_FIELDS = [
-  { id: 'host', label: 'Host', placeholder: 'smtp.sendgrid.net', type: 'text' },
-  { id: 'port', label: 'Port', placeholder: '587', type: 'number' },
-  { id: 'username', label: 'Username', placeholder: 'apikey', type: 'text' },
-];
+const DEFAULT_SMTP = {
+  provider: 'sendgrid',
+  host: '',
+  port: 587,
+  username: '',
+  password: '',
+  from_email: '',
+  from_name: '',
+  use_tls: true,
+};
 
-const DEFAULT_TEMPLATES = [
-  'Invitation to Sign',
-  'Reminder — Pending Signature',
-  'Signature Completed',
-  'Approval Requested',
-  'Approval Granted/Declined',
-  'Envelope Voided',
-  'Envelope Expired',
-  'Welcome / Onboarding',
+const TABS = [
+  { id: 'smtp', label: 'SMTP Configuration' },
+  { id: 'templates', label: 'Email Templates' },
+  { id: 'test', label: 'Test Email' },
 ];
-
-const TEMPLATE_KINDS = ['invitation', 'envelope_invite', 'reminder', 'completed'];
 
 export default function Email() {
   const toast = useToast();
   const [activeTab, setActiveTab] = useState('smtp');
-  const [provider, setProvider] = useState('sendgrid');
-  const [smtpForm, setSmtpForm] = useState({ host: '', port: 587, username: '', password: '', from_email: '', from_name: '', use_tls: true });
-  const [testEmailModal, setTestEmailModal] = useState(false);
-  const [testEmailTo, setTestEmailTo] = useState('');
-  const [testKind, setTestKind] = useState('envelope_invite');
+  const [smtpForm, setSmtpForm] = useState({ ...DEFAULT_SMTP });
+  const [testEmail, setTestEmail] = useState('');
+  const [testResult, setTestResult] = useState(null); // { type: 'success'|'error', message }
   const [templateModal, setTemplateModal] = useState(false);
-  const [editingTemplate, setEditingTemplate] = useState(null);
-  const [templateForm, setTemplateForm] = useState({ id: '', organization: '', kind: 'envelope_invite', name: '', subject_template: '', body_template: '', html_template: '', is_active: true });
+  const [editTemplate, setEditTemplate] = useState(null);
+  const [editForm, setEditForm] = useState({ subject: '', body_html: '' });
 
-  const { data: orgsData } = useApiQuery(['organizations'], EP.ORGANIZATIONS);
-  const orgId = orgsData?.results?.[0]?.id;
-
-  const { data: emailSettingsData, isLoading: loadingSettings } = useApiQuery(
-    ['email-settings', orgId],
+  const { data: smtpData } = useApiQuery(
+    ['smtp-settings'],
     EP.APP_SETTINGS,
-    { params: orgId ? { organization: orgId } : {} },
-    { enabled: !!orgId }
+    { namespace: 'email', key: 'smtp' }
   );
 
-  const { data: templatesData, isLoading: loadingTemplates, refetch: refetchTemplates } = useApiQuery(
-    ['email-templates', orgId],
-    EP.EMAIL_TEMPLATES,
-    { params: orgId ? { organization: orgId } : {} },
-    { enabled: !!orgId }
+  const { data: templatesData, refetch: refetchTemplates } = useApiQuery(
+    ['email-templates'],
+    EP.EMAIL_TEMPLATES
   );
 
-  const templates = templatesData?.results ?? [];
+  const templates = templatesData?.results ?? templatesData ?? [];
 
   useEffect(() => {
-    const s = emailSettingsData?.results?.[0] || emailSettingsData;
-    if (s) {
-      if (s.bounce_provider) setProvider(s.bounce_provider);
-      setSmtpForm(f => ({
-        ...f,
-        from_email: s.from_email || '',
-        from_name: s.from_name || '',
-      }));
+    const val = smtpData?.value || smtpData;
+    if (val && typeof val === 'object') {
+      setSmtpForm((prev) => ({ ...prev, ...val }));
     }
-  }, [emailSettingsData]);
+  }, [smtpData]);
 
-  const saveSettingsMutation = useApiMutation(
+  const setSmtp = (key, value) => setSmtpForm((prev) => ({ ...prev, [key]: value }));
+
+  const saveSmtpMutation = useApiMutation(
     (payload) => apiClient.post(EP.APP_SETTINGS, payload),
-    { invalidateKeys: ['email-settings'], onSuccess: () => toast.success('Email settings saved'), onError: (e) => toast.error(e.response?.data?.detail || e.message) }
-  );
-
-  const testMutation = useApiMutation(
-    (payload) => apiClient.post(EP.EMAIL_TEMPLATES_TEST, payload),
-    { onSuccess: (d) => { toast.success(`Test email sent to ${d.data?.to_email || testEmailTo}`); setTestEmailModal(false); }, onError: (e) => toast.error(e.response?.data?.detail || e.message) }
-  );
-
-  const saveTemplateMutation = useApiMutation(
-    (payload) => {
-      if (payload.id) {
-        return apiClient.patch(`${EP.EMAIL_TEMPLATES}${payload.id}/`, payload);
-      }
-      return apiClient.post(EP.EMAIL_TEMPLATES, payload);
-    },
     {
-      invalidateKeys: ['email-templates'],
-      onSuccess: () => { toast.success('Email template saved'); setTemplateModal(false); refetchTemplates(); },
+      invalidateKeys: ['smtp-settings'],
+      onSuccess: () => toast.success('SMTP settings saved'),
       onError: (e) => toast.error(e.response?.data?.detail || e.message),
     }
   );
 
-  function openTemplateEditor(tpl) {
-    if (tpl?.id) {
-      setTemplateForm({ id: tpl.id, organization: tpl.organization || orgId, kind: tpl.kind || 'envelope_invite', name: tpl.name || '', subject_template: tpl.subject_template || '', body_template: tpl.body_template || '', html_template: tpl.html_template || '', is_active: tpl.is_active !== false });
-    } else {
-      setTemplateForm({ id: '', organization: orgId, kind: 'envelope_invite', name: tpl?.name || '', subject_template: '', body_template: '', html_template: '', is_active: true });
+  const saveTemplateMutation = useApiMutation(
+    ({ id, ...payload }) =>
+      id
+        ? apiClient.patch(`${EP.EMAIL_TEMPLATES}${id}/`, payload)
+        : apiClient.post(EP.EMAIL_TEMPLATES, payload),
+    {
+      invalidateKeys: ['email-templates'],
+      onSuccess: () => {
+        toast.success('Email template saved');
+        setTemplateModal(false);
+        refetchTemplates();
+      },
+      onError: (e) => toast.error(e.response?.data?.detail || e.message),
     }
+  );
+
+  const testMutation = useApiMutation(
+    (payload) => apiClient.post(EP.EMAIL_TEMPLATES_TEST, payload),
+    {
+      onSuccess: () => {
+        setTestResult({ type: 'success', message: `Test email sent to ${testEmail}` });
+        toast.success(`Test email sent to ${testEmail}`);
+      },
+      onError: (e) => {
+        const msg = e.response?.data?.detail || e.message;
+        setTestResult({ type: 'error', message: msg });
+        toast.error(msg);
+      },
+    }
+  );
+
+  function openEditModal(template) {
+    setEditTemplate(template);
+    setEditForm({
+      subject: template.subject_template || template.subject || '',
+      body_html: template.html_template || template.body_html || '',
+    });
     setTemplateModal(true);
   }
 
-  function openDefaultTemplateEditor(name) {
-    const found = templates.find(t => t.name === name);
-    openTemplateEditor(found || { name });
+  function handleSaveTemplate() {
+    saveTemplateMutation.mutate({
+      id: editTemplate?.id,
+      subject: editForm.subject,
+      body_html: editForm.body_html,
+      subject_template: editForm.subject,
+      html_template: editForm.body_html,
+    });
   }
+
+  function handleSendTest() {
+    if (!testEmail.trim()) {
+      toast.error('Enter a recipient email address');
+      return;
+    }
+    setTestResult(null);
+    testMutation.mutate({ to: testEmail.trim() });
+  }
+
+  const templateList = Array.isArray(templates) ? templates : [];
 
   return (
     <div>
-      <div className="page-header">
-        <div>
-          <h1 className="page-title">Email Settings</h1>
-          <p className="page-subtitle">Configure SMTP provider and email templates</p>
-        </div>
-        <div className="flex gap-2">
-          <button className="btn btn-ghost" onClick={() => setTestEmailModal(true)}>Send Test Email</button>
-          <button className="btn btn-primary" disabled={saveSettingsMutation.isPending} onClick={() => saveSettingsMutation.mutate({ organization: orgId, from_email: smtpForm.from_email, from_name: smtpForm.from_name, bounce_provider: provider })}>
-            {saveSettingsMutation.isPending ? 'Saving…' : 'Save'}
-          </button>
-        </div>
-      </div>
-
       {/* Tabs */}
-      <div className="tabs" style={{ marginBottom: '1.25rem', borderBottom: '1px solid var(--border)', display: 'flex', gap: 0 }}>
-        {[['smtp', 'SMTP Configuration'], ['templates', 'Email Templates'], ['test', 'Test Email']].map(([id, label]) => (
-          <button key={id} className={`tab${activeTab === id ? ' active' : ''}`} onClick={() => setActiveTab(id)}>{label}</button>
+      <div
+        className="tabs"
+        style={{
+          display: 'flex',
+          gap: 0,
+          borderBottom: '1px solid var(--border)',
+          marginBottom: '1.25rem',
+        }}
+      >
+        {TABS.map(({ id, label }) => (
+          <button
+            key={id}
+            className={`tab${activeTab === id ? ' active' : ''}`}
+            onClick={() => setActiveTab(id)}
+          >
+            {label}
+          </button>
         ))}
       </div>
 
+      {/* SMTP Configuration tab */}
       {activeTab === 'smtp' && (
-        <div className="flex flex-col gap-4">
-          <div className="card" style={{ padding: '1.5rem' }}>
-            <h3 style={{ fontSize: '1rem', fontWeight: 700, marginBottom: '1rem' }}>Email Provider</h3>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.75rem', marginBottom: '1.25rem' }}>
-              {PROVIDERS.map(p => (
-                <div key={p.value} onClick={() => setProvider(p.value)} style={{ padding: '0.875rem', border: `2px solid ${provider === p.value ? 'var(--primary)' : 'var(--border)'}`, borderRadius: 8, textAlign: 'center', cursor: 'pointer', background: provider === p.value ? 'var(--primary-light, #dbeafe)' : '' }}>
-                  <div style={{ fontWeight: 600, fontSize: '0.875rem' }}>{p.label}</div>
-                  {provider === p.value && <Badge color="primary" style={{ fontSize: '0.7rem', marginTop: 4 }}>Active</Badge>}
-                </div>
-              ))}
-            </div>
+        <div className="card" style={{ padding: '1.5rem' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
+            <h3 style={{ fontSize: '1rem', fontWeight: 700, margin: 0 }}>SMTP Configuration</h3>
+            <button
+              className="btn btn-primary"
+              disabled={saveSmtpMutation.isPending}
+              onClick={() =>
+                saveSmtpMutation.mutate({
+                  namespace: 'email',
+                  key: 'smtp',
+                  value: smtpForm,
+                })
+              }
+            >
+              {saveSmtpMutation.isPending ? 'Saving…' : 'Save'}
+            </button>
+          </div>
 
-            {SMTP_FIELDS.map(field => (
-              <div key={field.id} className="form-group">
-                <label className="form-label">{field.label}</label>
-                <input className="form-input" type={field.type} placeholder={field.placeholder} value={smtpForm[field.id] || ''} onChange={e => setSmtpForm(f => ({ ...f, [field.id]: field.type === 'number' ? Number(e.target.value) : e.target.value }))} />
-              </div>
-            ))}
+          <div className="form-group">
+            <label className="form-label">Provider</label>
+            <select
+              className="form-input"
+              value={smtpForm.provider}
+              onChange={(e) => setSmtp('provider', e.target.value)}
+            >
+              {PROVIDERS.map((p) => (
+                <option key={p.value} value={p.value}>{p.label}</option>
+              ))}
+            </select>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
             <div className="form-group">
-              <label className="form-label">Password / API Key</label>
-              <input className="form-input" type="password" placeholder="••••••••••••" value={smtpForm.password || ''} onChange={e => setSmtpForm(f => ({ ...f, password: e.target.value }))} style={{ fontFamily: 'var(--font-mono)' }} />
+              <label className="form-label">Host</label>
+              <input
+                className="form-input"
+                type="text"
+                value={smtpForm.host}
+                placeholder="smtp.sendgrid.net"
+                onChange={(e) => setSmtp('host', e.target.value)}
+              />
             </div>
-            <div className="form-group"><label className="form-label">From Name</label><input className="form-input" value={smtpForm.from_name} onChange={e => setSmtpForm(f => ({ ...f, from_name: e.target.value }))} /></div>
-            <div className="form-group"><label className="form-label">From Email</label><input className="form-input" type="email" value={smtpForm.from_email} onChange={e => setSmtpForm(f => ({ ...f, from_email: e.target.value }))} /></div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.875rem' }}>
-              <input type="checkbox" id="use-tls" checked={!!smtpForm.use_tls} onChange={e => setSmtpForm(f => ({ ...f, use_tls: e.target.checked }))} />
-              <label htmlFor="use-tls">Enable TLS</label>
+            <div className="form-group">
+              <label className="form-label">Port</label>
+              <input
+                className="form-input"
+                type="number"
+                value={smtpForm.port}
+                onChange={(e) => setSmtp('port', Number(e.target.value))}
+                style={{ width: '100%' }}
+              />
             </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+            <div className="form-group">
+              <label className="form-label">Username</label>
+              <input
+                className="form-input"
+                type="text"
+                value={smtpForm.username}
+                placeholder="apikey"
+                onChange={(e) => setSmtp('username', e.target.value)}
+              />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Password</label>
+              <input
+                className="form-input"
+                type="password"
+                value={smtpForm.password}
+                placeholder="••••••••••••"
+                onChange={(e) => setSmtp('password', e.target.value)}
+                style={{ fontFamily: 'var(--font-mono)' }}
+              />
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+            <div className="form-group">
+              <label className="form-label">From Email</label>
+              <input
+                className="form-input"
+                type="email"
+                value={smtpForm.from_email}
+                placeholder="no-reply@yourorg.com"
+                onChange={(e) => setSmtp('from_email', e.target.value)}
+              />
+            </div>
+            <div className="form-group">
+              <label className="form-label">From Name</label>
+              <input
+                className="form-input"
+                type="text"
+                value={smtpForm.from_name}
+                placeholder="Acme Corp Documents"
+                onChange={(e) => setSmtp('from_name', e.target.value)}
+              />
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.875rem', marginTop: '0.25rem' }}>
+            <input
+              id="smtp-use-tls"
+              type="checkbox"
+              checked={!!smtpForm.use_tls}
+              onChange={(e) => setSmtp('use_tls', e.target.checked)}
+            />
+            <label htmlFor="smtp-use-tls">Enable TLS / SSL</label>
           </div>
         </div>
       )}
 
+      {/* Email Templates tab */}
       {activeTab === 'templates' && (
         <div className="card" style={{ padding: '1.5rem' }}>
-          <h3 style={{ fontSize: '1rem', fontWeight: 700, marginBottom: '1rem' }}>Email Templates</h3>
-          {loadingTemplates ? <Spinner center /> : (
-            <div className="flex flex-col gap-2">
-              {templates.length > 0 ? templates.map(t => (
-                <div key={t.id} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.625rem', border: '1px solid var(--border)', borderRadius: 7 }}>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontWeight: 500, fontSize: '0.875rem' }}>{t.name}</div>
-                    <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>{t.kind} · {t.subject_template}</div>
-                  </div>
-                  <Badge color={t.is_active ? 'success' : 'secondary'}>{t.is_active ? 'Active' : 'Inactive'}</Badge>
-                  <button className="btn btn-ghost btn-sm" onClick={() => openTemplateEditor(t)}>Edit</button>
-                </div>
-              )) : DEFAULT_TEMPLATES.map(name => (
-                <div key={name} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.625rem', border: '1px solid var(--border)', borderRadius: 7 }}>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontWeight: 500, fontSize: '0.875rem' }}>{name}</div>
-                  </div>
-                  <Badge color="success">Default</Badge>
-                  <button className="btn btn-ghost btn-sm" onClick={() => openDefaultTemplateEditor(name)}>Edit</button>
-                </div>
-              ))}
+          <h3 style={{ fontSize: '1rem', fontWeight: 700, marginBottom: '1rem', marginTop: 0 }}>Email Templates</h3>
+
+          {templateList.length === 0 ? (
+            <div style={{ color: 'var(--text-muted)', fontSize: '0.875rem', padding: '1rem 0' }}>
+              No email templates found. Create one below or configure your SMTP provider first.
+            </div>
+          ) : (
+            <table className="table" style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr>
+                  <th style={{ textAlign: 'left', padding: '0.5rem 0.75rem', fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)', borderBottom: '1px solid var(--border)' }}>Template Name</th>
+                  <th style={{ textAlign: 'left', padding: '0.5rem 0.75rem', fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)', borderBottom: '1px solid var(--border)' }}>Subject</th>
+                  <th style={{ textAlign: 'left', padding: '0.5rem 0.75rem', fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)', borderBottom: '1px solid var(--border)' }}>Last Modified</th>
+                  <th style={{ width: 80, padding: '0.5rem 0.75rem', borderBottom: '1px solid var(--border)' }}></th>
+                </tr>
+              </thead>
+              <tbody>
+                {templateList.map((t) => (
+                  <tr key={t.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                    <td style={{ padding: '0.625rem 0.75rem', fontSize: '0.875rem', fontWeight: 500 }}>{t.name}</td>
+                    <td style={{ padding: '0.625rem 0.75rem', fontSize: '0.875rem', color: 'var(--text-muted)', maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {t.subject_template || t.subject || '—'}
+                    </td>
+                    <td style={{ padding: '0.625rem 0.75rem', fontSize: '0.8125rem', color: 'var(--text-muted)' }}>
+                      {t.updated_at
+                        ? new Date(t.updated_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+                        : '—'}
+                    </td>
+                    <td style={{ padding: '0.625rem 0.75rem', textAlign: 'right' }}>
+                      <button className="btn btn-ghost btn-sm" onClick={() => openEditModal(t)}>Edit</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
+
+      {/* Test Email tab */}
+      {activeTab === 'test' && (
+        <div className="card" style={{ padding: '1.5rem' }}>
+          <h3 style={{ fontSize: '1rem', fontWeight: 700, marginBottom: '1rem', marginTop: 0 }}>Test Email</h3>
+
+          <div className="form-group">
+            <label className="form-label">Recipient Email</label>
+            <input
+              className="form-input"
+              type="email"
+              value={testEmail}
+              placeholder="admin@yourorg.com"
+              onChange={(e) => { setTestEmail(e.target.value); setTestResult(null); }}
+            />
+          </div>
+
+          <button
+            className="btn btn-primary"
+            disabled={testMutation.isPending}
+            onClick={handleSendTest}
+          >
+            {testMutation.isPending ? 'Sending…' : 'Send Test Email'}
+          </button>
+
+          {testResult && (
+            <div
+              className={`alert${testResult.type === 'error' ? '' : ' alert-info'}`}
+              style={{
+                marginTop: '1rem',
+                padding: '0.75rem 1rem',
+                borderRadius: 6,
+                fontSize: '0.875rem',
+                background: testResult.type === 'error' ? 'var(--danger-light, #fee2e2)' : 'var(--info-light, #dbeafe)',
+                color: testResult.type === 'error' ? 'var(--danger)' : 'var(--info)',
+                border: `1px solid ${testResult.type === 'error' ? 'var(--danger)' : 'var(--info)'}`,
+              }}
+            >
+              {testResult.message}
             </div>
           )}
         </div>
       )}
 
-      {activeTab === 'test' && (
-        <div className="card" style={{ padding: '1.5rem' }}>
-          <h3 style={{ fontSize: '1rem', fontWeight: 700, marginBottom: '1rem' }}>Test Email</h3>
-          <div className="form-group"><label className="form-label">Send to</label><input className="form-input" type="email" placeholder="admin@yourorg.com" value={testEmailTo} onChange={e => setTestEmailTo(e.target.value)} /></div>
-          <div className="form-group">
-            <label className="form-label">Template</label>
-            <select className="form-input" value={testKind} onChange={e => setTestKind(e.target.value)}>
-              <option value="envelope_invite">Invitation to Sign</option>
-              <option value="reminder">Reminder</option>
-              <option value="completed">Completion</option>
-            </select>
-          </div>
-          <button className="btn btn-primary" disabled={testMutation.isPending} onClick={() => {
-            if (!testEmailTo) return toast.error('Enter a recipient email');
-            testMutation.mutate({ organization: orgId, to_email: testEmailTo, kind: testKind });
-          }}>{testMutation.isPending ? 'Sending…' : 'Send Test'}</button>
-        </div>
-      )}
-
-      {/* Test Email Modal */}
-      <Modal open={testEmailModal} onClose={() => setTestEmailModal(false)} title="Send Test Email" size="sm"
-        footer={<>
-          <button className="btn btn-ghost" onClick={() => setTestEmailModal(false)}>Cancel</button>
-          <button className="btn btn-primary" disabled={testMutation.isPending} onClick={() => {
-            if (!testEmailTo) return toast.error('Enter a recipient email');
-            testMutation.mutate({ organization: orgId, to_email: testEmailTo, kind: testKind });
-          }}>Send Test</button>
-        </>}>
-        <div className="form-group"><label className="form-label">Send to</label><input className="form-input" type="email" value={testEmailTo} onChange={e => setTestEmailTo(e.target.value)} /></div>
-        <div className="form-group">
-          <label className="form-label">Template</label>
-          <select className="form-input" value={testKind} onChange={e => setTestKind(e.target.value)}>
-            <option value="envelope_invite">Invitation to Sign</option>
-            <option value="reminder">Reminder</option>
-            <option value="completed">Completion</option>
-          </select>
-        </div>
-      </Modal>
-
       {/* Template Edit Modal */}
-      <Modal open={templateModal} onClose={() => setTemplateModal(false)} title="Edit Email Template" size="lg"
-        footer={<>
-          <button className="btn btn-ghost" onClick={() => setTemplateModal(false)}>Cancel</button>
-          <button className="btn btn-primary" disabled={saveTemplateMutation.isPending} onClick={() => saveTemplateMutation.mutate(templateForm)}>Save Template</button>
-        </>}>
+      <Modal
+        open={templateModal}
+        onClose={() => setTemplateModal(false)}
+        title={editTemplate ? `Edit: ${editTemplate.name}` : 'Edit Email Template'}
+        size="lg"
+        footer={
+          <>
+            <button className="btn btn-ghost" onClick={() => setTemplateModal(false)}>Cancel</button>
+            <button
+              className="btn btn-primary"
+              disabled={saveTemplateMutation.isPending}
+              onClick={handleSaveTemplate}
+            >
+              {saveTemplateMutation.isPending ? 'Saving…' : 'Save Template'}
+            </button>
+          </>
+        }
+      >
         <div className="form-group">
-          <label className="form-label">Kind</label>
-          <select className="form-input" value={templateForm.kind} onChange={e => setTemplateForm(f => ({ ...f, kind: e.target.value }))}>
-            {TEMPLATE_KINDS.map(k => <option key={k} value={k}>{k}</option>)}
-          </select>
+          <label className="form-label">Subject</label>
+          <input
+            className="form-input"
+            value={editForm.subject}
+            onChange={(e) => setEditForm((f) => ({ ...f, subject: e.target.value }))}
+            placeholder="Subject line"
+          />
         </div>
-        <div className="form-group"><label className="form-label">Name</label><input className="form-input" value={templateForm.name} onChange={e => setTemplateForm(f => ({ ...f, name: e.target.value }))} /></div>
-        <div className="form-group"><label className="form-label">Subject</label><input className="form-input" value={templateForm.subject_template} onChange={e => setTemplateForm(f => ({ ...f, subject_template: e.target.value }))} /></div>
-        <div className="form-group"><label className="form-label">Text Body</label><textarea className="form-input" rows={6} value={templateForm.body_template} onChange={e => setTemplateForm(f => ({ ...f, body_template: e.target.value }))} /></div>
-        <div className="form-group"><label className="form-label">HTML Body</label><textarea className="form-input" rows={5} value={templateForm.html_template} onChange={e => setTemplateForm(f => ({ ...f, html_template: e.target.value }))} /></div>
-        <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-          <input type="checkbox" checked={templateForm.is_active} onChange={e => setTemplateForm(f => ({ ...f, is_active: e.target.checked }))} /> Active
-        </label>
+        <div className="form-group">
+          <label className="form-label">HTML Body</label>
+          <textarea
+            className="form-input"
+            value={editForm.body_html}
+            onChange={(e) => setEditForm((f) => ({ ...f, body_html: e.target.value }))}
+            style={{ height: 300, fontFamily: 'var(--font-mono)', fontSize: '0.8125rem', resize: 'vertical' }}
+            placeholder="<p>Hello {{ recipient_name }},</p>"
+          />
+        </div>
       </Modal>
     </div>
   );

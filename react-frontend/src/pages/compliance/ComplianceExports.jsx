@@ -3,7 +3,7 @@ import { useApiQuery, useApiMutation } from '../../hooks/useApi';
 import { apiClient } from '../../api/client';
 import { EP } from '../../api/endpoints';
 import { useToast } from '../../hooks/useToast';
-import { formatDateTime } from '../../utils/formatting';
+import { formatDate, formatDateTime, formatBytes } from '../../utils/formatting';
 import Modal from '../../components/ui/Modal';
 import Badge, { statusColor } from '../../components/ui/Badge';
 import Spinner from '../../components/ui/Spinner';
@@ -17,15 +17,34 @@ const EXPORT_TYPES = [
   { value: 'full', label: 'Full Export' },
 ];
 
+const PROCESSING_STATUSES = new Set(['processing', 'pending', 'queued']);
+
 export default function ComplianceExports() {
   const toast = useToast();
   const [queueModal, setQueueModal] = useState(false);
-  const [exportType, setExportType] = useState('audit_events');
-  const [dateFrom, setDateFrom] = useState('');
-  const [dateTo, setDateTo] = useState('');
+  const [exportForm, setExportForm] = useState({ type: 'audit_events', date_from: '', date_to: '' });
 
-  const { data, isLoading, refetch } = useApiQuery(['compliance-exports'], EP.COMPLIANCE_EXPORTS);
-  const exports = data?.results ?? [];
+  const { data, isLoading, refetch } = useApiQuery(
+    ['compliance-exports'],
+    EP.COMPLIANCE_EXPORTS,
+    {},
+    {
+      refetchInterval: (query) => {
+        const exports = query.state.data?.results ?? query.state.data ?? [];
+        const processingCount = Array.isArray(exports)
+          ? exports.filter((e) => PROCESSING_STATUSES.has(e.status)).length
+          : 0;
+        return processingCount > 0 ? 10000 : false;
+      },
+    }
+  );
+
+  const exports = data?.results ?? data ?? [];
+
+  const total = exports.length;
+  const processing = exports.filter((e) => PROCESSING_STATUSES.has(e.status)).length;
+  const ready = exports.filter((e) => e.status === 'completed' || e.status === 'ready').length;
+  const failed = exports.filter((e) => e.status === 'failed' || e.status === 'error').length;
 
   const queueMutation = useApiMutation(
     (payload) => apiClient.post(EP.COMPLIANCE_EXPORTS, payload),
@@ -34,31 +53,37 @@ export default function ComplianceExports() {
       onSuccess: () => {
         toast.success('Export queued successfully');
         setQueueModal(false);
-        setExportType('audit_events');
-        setDateFrom('');
-        setDateTo('');
+        setExportForm({ type: 'audit_events', date_from: '', date_to: '' });
       },
       onError: (e) => toast.error(e.response?.data?.detail || e.message),
     }
   );
 
   const handleQueue = useCallback(() => {
+    const orgId = localStorage.getItem('HANMAK_ORGANIZATION_ID');
     queueMutation.mutate({
-      type: exportType,
-      date_from: dateFrom || undefined,
-      date_to: dateTo || undefined,
+      type: exportForm.type,
+      date_from: exportForm.date_from || undefined,
+      date_to: exportForm.date_to || undefined,
+      organization: orgId ? Number(orgId) : undefined,
     });
-  }, [exportType, dateFrom, dateTo, queueMutation]);
+  }, [exportForm, queueMutation]);
 
-  const exportTypeLabel = (val) => EXPORT_TYPES.find(t => t.value === val)?.label || val;
+  const exportTypeLabel = (val) => EXPORT_TYPES.find((t) => t.value === val)?.label || val;
 
   const getStatusColor = (status) => {
     if (!status) return 'secondary';
     const s = String(status).toLowerCase();
     if (s === 'completed' || s === 'ready') return 'success';
     if (s === 'failed' || s === 'error') return 'danger';
-    if (s === 'processing' || s === 'pending' || s === 'queued') return 'warning';
+    if (PROCESSING_STATUSES.has(s)) return 'warning';
     return 'secondary';
+  };
+
+  const formatSize = (bytes) => {
+    if (bytes == null) return '—';
+    if (typeof bytes === 'string') return bytes;
+    return formatBytes(bytes);
   };
 
   return (
@@ -72,6 +97,21 @@ export default function ComplianceExports() {
           <button className="btn btn-ghost" onClick={() => refetch()}>Refresh</button>
           <button className="btn btn-primary" onClick={() => setQueueModal(true)}>Queue Export</button>
         </div>
+      </div>
+
+      {/* Stats */}
+      <div className="stats-grid" style={{ marginBottom: '1.5rem' }}>
+        {[
+          { label: 'Total', value: total },
+          { label: 'Processing', value: processing, color: processing > 0 ? 'var(--warning)' : undefined },
+          { label: 'Ready', value: ready, color: ready > 0 ? 'var(--success)' : undefined },
+          { label: 'Failed', value: failed, color: failed > 0 ? 'var(--danger)' : undefined },
+        ].map(({ label, value, color }) => (
+          <div key={label} className="stat-card">
+            <div className="stat-label">{label}</div>
+            <div className="stat-value" style={color ? { color } : undefined}>{value}</div>
+          </div>
+        ))}
       </div>
 
       {isLoading ? (
@@ -88,6 +128,7 @@ export default function ComplianceExports() {
                 <th>Requested By</th>
                 <th>Date Range</th>
                 <th>Created</th>
+                <th>Size</th>
                 <th>Download</th>
               </tr>
             </thead>
@@ -100,7 +141,9 @@ export default function ComplianceExports() {
                       {exp.status || '—'}
                     </Badge>
                   </td>
-                  <td>{exp.requested_by_name || exp.requested_by || exp.created_by || '—'}</td>
+                  <td style={{ fontSize: '0.875rem' }}>
+                    {exp.requested_by_name || exp.requested_by || exp.created_by || '—'}
+                  </td>
                   <td style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>
                     {exp.date_from || exp.date_to
                       ? `${exp.date_from || '∞'} → ${exp.date_to || '∞'}`
@@ -109,12 +152,15 @@ export default function ComplianceExports() {
                   <td style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>
                     {formatDateTime(exp.created_at)}
                   </td>
+                  <td style={{ fontSize: '0.875rem', color: 'var(--text-muted)' }}>
+                    {formatSize(exp.file_size ?? exp.size)}
+                  </td>
                   <td>
                     {exp.file_url ? (
-                      <a className="btn btn-ghost btn-sm" href={exp.file_url} target="_blank" rel="noreferrer">
+                      <a className="btn btn-ghost btn-sm" href={exp.file_url} download>
                         Download
                       </a>
-                    ) : (exp.status === 'processing' || exp.status === 'pending' || exp.status === 'queued') ? (
+                    ) : PROCESSING_STATUSES.has(exp.status) ? (
                       <span style={{ fontSize: '0.8125rem', color: 'var(--text-muted)' }}>Processing…</span>
                     ) : (
                       <span style={{ fontSize: '0.8125rem', color: 'var(--text-muted)' }}>—</span>
@@ -143,22 +189,38 @@ export default function ComplianceExports() {
       >
         <div className="form-group">
           <label className="form-label">Export Type</label>
-          <select className="form-input" value={exportType} onChange={(e) => setExportType(e.target.value)}>
-            {EXPORT_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+          <select
+            className="form-input"
+            value={exportForm.type}
+            onChange={(e) => setExportForm((f) => ({ ...f, type: e.target.value }))}
+          >
+            {EXPORT_TYPES.map((t) => (
+              <option key={t.value} value={t.value}>{t.label}</option>
+            ))}
           </select>
         </div>
-        <div className="form-row" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
           <div className="form-group">
             <label className="form-label">Date From</label>
-            <input className="form-input" type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
+            <input
+              className="form-input"
+              type="date"
+              value={exportForm.date_from}
+              onChange={(e) => setExportForm((f) => ({ ...f, date_from: e.target.value }))}
+            />
           </div>
           <div className="form-group">
             <label className="form-label">Date To</label>
-            <input className="form-input" type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
+            <input
+              className="form-input"
+              type="date"
+              value={exportForm.date_to}
+              onChange={(e) => setExportForm((f) => ({ ...f, date_to: e.target.value }))}
+            />
           </div>
         </div>
         <p style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', margin: 0 }}>
-          Leave date fields empty to export all records. Exports are generated asynchronously.
+          Leave date fields empty to export all records. Exports are generated asynchronously and may take a few minutes.
         </p>
       </Modal>
     </div>

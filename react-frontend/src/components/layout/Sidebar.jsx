@@ -1,6 +1,7 @@
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { useUiStore } from '../../store/uiStore';
+import { useErrorLogStore } from '../../store/errorLogStore';
 
 const NAV = [
   {
@@ -54,6 +55,7 @@ const NAV = [
     items: [
       { to: '/system/tasks', label: 'Background Tasks' },
       { to: '/system/health', label: 'System Health' },
+      { to: '/system/error-log', label: 'Error Log', badge: 'errorLog' },
     ],
   },
   {
@@ -73,6 +75,7 @@ export default function Sidebar() {
   const { user, logout } = useAuth();
   const { mobileSidebarOpen } = useUiStore();
   const navigate = useNavigate();
+  const errorCount = useErrorLogStore((s) => s.entries.filter((e) => !e.resolved).length);
 
   const handleLogout = () => {
     logout();
@@ -93,17 +96,38 @@ export default function Sidebar() {
         {NAV.map((section) => (
           <div className="nav-section" key={section.label}>
             <div className="nav-section-label">{section.label}</div>
-            {section.items.map((item) => (
-              <NavLink
-                key={item.to}
-                to={item.to}
-                end={item.to === '/settings'}
-                className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
-                aria-current={({ isActive }) => (isActive ? 'page' : undefined)}
-              >
-                {item.label}
-              </NavLink>
-            ))}
+            {section.items.map((item) => {
+              const badgeCount = item.badge === 'errorLog' ? errorCount : 0;
+              return (
+                <NavLink
+                  key={item.to}
+                  to={item.to}
+                  end={item.to === '/settings'}
+                  className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
+                  aria-current={({ isActive }) => (isActive ? 'page' : undefined)}
+                  style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
+                >
+                  <span>{item.label}</span>
+                  {badgeCount > 0 && (
+                    <span
+                      style={{
+                        background: 'var(--danger)',
+                        color: '#fff',
+                        borderRadius: 10,
+                        fontSize: 10,
+                        fontWeight: 700,
+                        padding: '1px 6px',
+                        minWidth: 18,
+                        textAlign: 'center',
+                        lineHeight: '16px',
+                      }}
+                    >
+                      {badgeCount > 99 ? '99+' : badgeCount}
+                    </span>
+                  )}
+                </NavLink>
+              );
+            })}
           </div>
         ))}
       </nav>
