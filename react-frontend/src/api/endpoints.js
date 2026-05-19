@@ -46,6 +46,7 @@ export const EP = {
   RECIPIENTS: '/recipients/',
   RECIPIENT: (id) => `/recipients/${id}/`,
   RECIPIENT_REMIND: (id) => `/recipients/${id}/remind/`,
+  RECIPIENT_DELEGATE: (id) => `/recipients/${id}/delegate/`,
 
   // Templates
   TEMPLATES: '/templates/',

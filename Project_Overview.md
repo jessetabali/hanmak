@@ -10,7 +10,7 @@ Vite 5 + React 18 + React Router v6 + TanStack Query v5 + Zustand + Axios.
 
 This is the production frontend. All 44 pages are fully implemented and live-wired to the Django/DRF backend (~22,000 lines). It replaces the vanilla JS prototype for all active development.
 
-See `docs/REACT_FRONTEND_ARCHITECTURE.md` for the full architecture guide, route map, data-fetching conventions, known bugs fixed, and feature parity gap list.
+See `docs/REACT_FRONTEND_ARCHITECTURE.md` for the full architecture guide, route map, data-fetching conventions, known bugs fixed, and React/mock parity status.
 
 **Dev server (Docker):**
 ```bash
@@ -105,7 +105,7 @@ GET requests are gated by object-level grants; mutations require `admin` or `man
 
 ## Integration State
 
-The vast majority of the surface area is live-wired in both the vanilla JS prototype and the React frontend. See `MOCK_ALIGNMENT.md` for vanilla JS alignment detail. See `docs/REACT_FRONTEND_ARCHITECTURE.md` for React frontend hookup status and feature parity gaps.
+The vast majority of the surface area is live-wired in both the vanilla JS prototype and the React frontend. See `MOCK_ALIGNMENT.md` for vanilla JS alignment detail. See `docs/REACT_FRONTEND_ARCHITECTURE.md` for React frontend hookup status and parity closure notes.
 
 **Fully wired (both frontends):**
 - Users, Organisations, Teams, Roles & Permissions (including delete)
@@ -130,12 +130,13 @@ Detailed guides:
 | `docs/DEVELOPER_GUIDE.md` | Architecture, run commands, API patterns, release-control workflow, testing, and feature-extension guide |
 | `docs/REACT_FRONTEND_ARCHITECTURE.md` | React frontend architecture, route map, conventions, and implementation roadmap |
 | `docs/BETA_FRONTEND_READINESS.md` | Beta testing checklist and readiness notes for the vanilla JS prototype |
+| `docs/MVP_READINESS_CHECKLIST.md` | Final automated/manual gates for MVP sign-off and vanilla JS mock removal |
 | `backend/MOCK_ALIGNMENT.md` | Vanilla JS mock-to-backend alignment status (reference for React implementation) |
 | `backend/PLAN_ALIGNMENT.md` | Build-plan and implementation alignment notes |
 
 **Current verification checkpoint (2026-05-20):**
 - Backend checks are green: `manage.py check` and `makemigrations --check --dry-run`.
-- Full tenant API suite is green: `accounts.tests.TenantScopedAPITests` (`91 tests OK`).
+- Full tenant API suite is green: `accounts.tests.TenantScopedAPITests` (`97 tests OK`).
 - Public invitation accept/inspect, envelope send readiness, signing, payment webhooks, search ranking, deployment readiness, release-gated admin flows, and tenant/RBAC guards are covered in tests.
 - Signed PDF field-placement bug resolved 2026-05-18: three-layer fix across `evidence/pdf.py`, `form-builder.js`, and `live-wiring.js`.
 - React frontend fully implemented 2026-05-18: all 44 pages live-wired, all critical integration bugs fixed (auth endpoints, blob download, organization FK, toast shortcuts, evidence bundle create flow).
@@ -145,6 +146,7 @@ Detailed guides:
 - **PublicSigning document pages fixed 2026-05-20:** Pages now derived from `session.documents[].document_detail.pages[]` sorted by document `order` then `page_number`. The previous path `session?.pages` never existed.
 - **EP constants corrected 2026-05-20:** Added `MFA_TOTP_BEGIN`, `MFA_TOTP_CONFIRM`, `MFA_PASSKEY_BEGIN_REG`, `MFA_PASSKEY_FINISH_REG`, `TASK_RUN_SUMMARY`, `EMAIL_MESSAGES`, `EMAIL_TEMPLATES`, `ENVELOPE_BULK`, `ENVELOPE_SUMMARY`, `ENVELOPE_CREATE_FROM_TEMPLATE` (using correct hyphenated path). `Profile.jsx` and `BackgroundTasks.jsx` updated to use constants instead of hardcoded strings.
 - **Template/Envelope creation parity 2026-05-20:** Both TemplateList and EnvelopeList creation modals use async multi-step flows matching the mock: `create-from-template` when a versioned template is selected, with per-recipient `{party_key, routing_order, role}` and optional existing-document attachment for scratch envelopes.
+- **React mock-removal parity 2026-05-20:** Public signing delegation and Envelope Detail recipient delegation are implemented in React, the stale backend `create_from_template` test path is corrected to `create-from-template`, `npm run lint` now has a real ESLint config, normal `npm run build` regenerates `dist/` with local ownership, and MVP/mock-removal gates are tracked in `docs/MVP_READINESS_CHECKLIST.md`.
 - **UI/UX modernized 2026-05-20:** `index.css` rewritten (288 → 545 lines) with DM Sans body font, card shadow + hover lift, button focus rings, modal backdrop blur + slide-up animation, toast left-accent bars, custom scrollbars, sticky table headers. Critical bug fixed: `.card-title` and `.card-header` had no CSS definition despite being referenced in `Dashboard.jsx` and `WorkflowBuilder.jsx`.
 - Next checkpoint is Docker click-through QA through `http://127.0.0.1:8080/` (React frontend) to verify every browser-visible action against the Nginx-proxied stack.
 

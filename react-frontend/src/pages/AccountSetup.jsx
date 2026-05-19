@@ -30,7 +30,7 @@ export default function AccountSetup() {
         setErrorMsg(err.response?.data?.detail || err.message || 'This setup link is invalid or expired.');
         setStep('error');
       });
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleSubmit = async (e) => {
     e.preventDefault();

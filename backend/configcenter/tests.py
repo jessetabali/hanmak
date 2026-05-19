@@ -1,5 +1,7 @@
+from unittest.mock import patch
+
 from django.contrib.auth import get_user_model
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from rest_framework import status
 from rest_framework.test import APIClient
 
@@ -59,3 +61,37 @@ class FeatureFlagGateTests(TestCase):
         self.assertIsInstance(response.data, list)
         self.assertGreaterEqual(len(response.data), 40)
         self.assertIn('release_control', {item['key'] for item in response.data})
+
+    @override_settings(
+        DEBUG=False,
+        SECURE_SSL_REDIRECT=False,
+        SESSION_COOKIE_SECURE=True,
+        CSRF_COOKIE_SECURE=True,
+        SECURE_HSTS_SECONDS=3600,
+    )
+    @patch.dict('os.environ', {
+        'HANMAK_BACKUP_POLICY': 'dev-postgres-volume-snapshot',
+        'HANMAK_LAST_RESTORE_DRILL_AT': '2026-05-20T00:00:00Z',
+        'HANMAK_SECRETS_MANAGER': 'docker-env-file',
+        'HANMAK_PRIMARY_DOMAIN': 'localhost:8080',
+        'HANMAK_TLS_REDIRECT_CONFIGURED': 'true',
+        'OTEL_EXPORTER_OTLP_ENDPOINT': 'http://otel-collector:4318',
+        'HANMAK_ALERT_WEBHOOK_URL': 'http://localhost:8080/mock/alerts',
+        'HANMAK_PAYMENT_WEBHOOK_SECRET': 'dev-payment-webhook-secret',
+    }, clear=False)
+    def test_deployment_readiness_accepts_deployment_evidence_env(self):
+        response = self.client.get('/api/v1/health-checks/deployment-readiness/')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        checks = {item['key']: item['status'] for item in response.data['checks']}
+        self.assertEqual(checks['debug_disabled'], 'pass')
+        self.assertEqual(checks['secure_ssl_redirect'], 'pass')
+        self.assertEqual(checks['secure_cookies'], 'pass')
+        self.assertEqual(checks['hsts_configured'], 'pass')
+        self.assertEqual(checks['database_backup_policy'], 'pass')
+        self.assertEqual(checks['restore_drill_recorded'], 'pass')
+        self.assertEqual(checks['secrets_manager_configured'], 'pass')
+        self.assertEqual(checks['tls_domain_configured'], 'pass')
+        self.assertEqual(checks['apm_configured'], 'pass')
+        self.assertEqual(checks['external_alerts_configured'], 'pass')
+        self.assertEqual(checks['payment_webhook_secret'], 'pass')

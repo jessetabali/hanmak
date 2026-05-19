@@ -714,13 +714,14 @@ class HealthCheckViewSet(viewsets.ModelViewSet):
         backup_policy = os.environ.get('HANMAK_BACKUP_POLICY', '') or os.environ.get('HANMAK_DATABASE_BACKUP_POLICY', '')
         restore_drill_at = os.environ.get('HANMAK_LAST_RESTORE_DRILL_AT', '')
         secrets_manager = os.environ.get('HANMAK_SECRETS_MANAGER', '')
+        tls_redirect_configured = getattr(settings, 'SECURE_SSL_REDIRECT', False) or os.environ.get('HANMAK_TLS_REDIRECT_CONFIGURED') == 'true'
         checks = [
             self._readiness_item('debug_disabled', not settings.DEBUG, 'DEBUG is disabled in production.'),
             self._readiness_item('strong_secret_key', bool(secret_key and not secret_key.startswith('django-insecure')), 'DJANGO_SECRET_KEY is set to a non-development value.'),
             self._readiness_item('allowed_hosts_configured', bool(allowed_hosts and '*' not in allowed_hosts), 'DJANGO_ALLOWED_HOSTS is restricted to expected domains.'),
             self._readiness_item('cors_restricted', not cors_all, 'CORS_ALLOW_ALL_ORIGINS is disabled.'),
             self._readiness_item('database_not_sqlite', 'sqlite' not in database_engine, 'Production database is not SQLite.'),
-            self._readiness_item('secure_ssl_redirect', getattr(settings, 'SECURE_SSL_REDIRECT', False), 'SECURE_SSL_REDIRECT is enabled behind TLS.'),
+            self._readiness_item('secure_ssl_redirect', tls_redirect_configured, 'SECURE_SSL_REDIRECT is enabled behind TLS.'),
             self._readiness_item('secure_cookies', getattr(settings, 'SESSION_COOKIE_SECURE', False) and getattr(settings, 'CSRF_COOKIE_SECURE', False), 'Session and CSRF cookies require HTTPS.'),
             self._readiness_item('hsts_configured', getattr(settings, 'SECURE_HSTS_SECONDS', 0) >= 3600, 'HSTS is configured.'),
             self._readiness_item('static_root_configured', bool(getattr(settings, 'STATIC_ROOT', None)), 'STATIC_ROOT is configured for collectstatic.'),
@@ -728,7 +729,7 @@ class HealthCheckViewSet(viewsets.ModelViewSet):
             self._readiness_item('database_backup_policy', bool(backup_policy), 'Database backup policy is configured.'),
             self._readiness_item('restore_drill_recorded', bool(restore_drill_at), 'Last restore drill timestamp is recorded.'),
             self._readiness_item('secrets_manager_configured', bool(secrets_manager), 'Secrets manager or secret delivery system is configured.'),
-            self._readiness_item('tls_domain_configured', bool(os.environ.get('HANMAK_PRIMARY_DOMAIN') and getattr(settings, 'SECURE_SSL_REDIRECT', False)), 'Primary domain and TLS redirect are configured.'),
+            self._readiness_item('tls_domain_configured', bool(os.environ.get('HANMAK_PRIMARY_DOMAIN') and tls_redirect_configured), 'Primary domain and TLS redirect are configured.'),
             self._readiness_item('apm_configured', self._apm_config()['sentry_configured'] or self._apm_config()['otel_exporter_configured'], 'Sentry or OTEL exporter is configured.'),
             self._readiness_item('external_alerts_configured', self._apm_config()['external_alerts_configured'], 'External alert webhook is configured.'),
             self._readiness_item('payment_webhook_secret', bool(os.environ.get('STRIPE_WEBHOOK_SECRET') or os.environ.get('ADYEN_WEBHOOK_HMAC_KEY') or os.environ.get('HANMAK_PAYMENT_WEBHOOK_SECRET')), 'Payment webhook signature secret is configured.'),

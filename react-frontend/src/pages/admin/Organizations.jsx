@@ -73,7 +73,7 @@ export default function Organizations() {
       });
       setFormInitialized(true);
     }
-  }, [org?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [org?.id]);
 
   // Persist org selection to localStorage
   const switchOrg = useCallback((id) => {

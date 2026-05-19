@@ -222,7 +222,7 @@ export default function Search() {
       setQuery(value);
       setPage(1);
     }, 300);
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleTypeChange = (key) => {
     setTypeFilter(key);

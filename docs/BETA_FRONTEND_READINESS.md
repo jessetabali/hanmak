@@ -79,7 +79,7 @@ The React production frontend (`react-frontend/`) reached **full implementation*
 - **Done (2026-05-20):** MinIO as default file storage — all uploaded documents and rendered page PNGs stored in MinIO. Nginx `/files/` proxy serves them same-origin (no CORS). `minio_init` Docker service creates bucket automatically.
 - **Done (2026-05-20):** FormBuilder PDF preview — `pdfjs-dist` renders PDF pages client-side immediately on upload (canvas data URLs). No dependency on backend renderer for the canvas preview. Backend `pdf2image` renders server-side images in parallel for the signing view.
 - **Done (2026-05-20):** Template preview — cards show first-page thumbnail (`preview_image_url` from backend serializer). Preview modal auto-generates pages via `prepare-for-builder` when none exist yet.
-- **Remaining:** Feature parity polish — some UI elements from the vanilla JS prototype not yet ported (see `docs/REACT_FRONTEND_ARCHITECTURE.md` for current gap list).
+- **Ready for final parity QA:** Previously tracked high-priority React parity gaps have been ported, including audit hash verification, approvals changes-requested/delegation views, General Settings toggles, public signing delegation, and Envelope Detail recipient delegation. See `docs/MVP_READINESS_CHECKLIST.md` for the final mock-removal checklist.
 
 The React frontend is accessible at `http://127.0.0.1:8080/` (served by Nginx from the Vite dev server in Docker) or `http://localhost:5173/` directly from the Vite HMR server.
 
@@ -87,8 +87,8 @@ The React frontend is accessible at `http://127.0.0.1:8080/` (served by Nginx fr
 
 `hanmak_demo_mock_directory/` will be retired from active serving when:
 
-1. All High-priority feature parity gaps in the React frontend are resolved.
+1. The automated gates in `docs/MVP_READINESS_CHECKLIST.md` are green in a clean checkout.
 2. The React frontend passes the same Docker click-through QA checklist that the vanilla JS frontend passed.
-3. The React public signing flow (`/sign/:token`) is fully tested on desktop and mobile widths.
+3. The React public signing flow (`/sign/:token`) is fully tested on desktop and mobile widths, including submit, decline, and delegate.
 
 Until then, the vanilla JS beta remains the live reference at `http://127.0.0.1:8080/mock/` and should be kept updated when backend API changes occur.

@@ -9,6 +9,7 @@ Use this checklist before calling an environment production-ready.
 - Put TLS on the load balancer or reverse proxy.
 - Set `USE_X_FORWARDED_PROTO=true` when TLS terminates before Django.
 - Enable `SECURE_SSL_REDIRECT=true`, `SESSION_COOKIE_SECURE=true`, and `CSRF_COOKIE_SECURE=true`.
+- If the edge proxy owns HTTP-to-HTTPS redirects instead of Django, set `HANMAK_TLS_REDIRECT_CONFIGURED=true` after verifying the redirect externally.
 - Enable HSTS only after the domain is verified end-to-end.
 
 ## Secrets

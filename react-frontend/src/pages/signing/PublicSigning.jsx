@@ -59,10 +59,14 @@ export default function PublicSigning() {
   const [uploadPreview, setUploadPreview] = useState(null);
   const [submitted, setSubmitted] = useState(false);
   const [declined, setDeclined] = useState(false);
+  const [delegated, setDelegated] = useState(null);
   const [declineModal, setDeclineModal] = useState(false);
   const [declineReason, setDeclineReason] = useState('');
+  const [delegateModal, setDelegateModal] = useState(false);
+  const [delegateForm, setDelegateForm] = useState({ name: '', email: '', reason: '' });
   const [submitting, setSubmitting] = useState(false);
   const [declining, setDeclining] = useState(false);
+  const [delegating, setDelegating] = useState(false);
   const [activeFieldId, setActiveFieldId] = useState(null);
   const [signatureModalOpen, setSignatureModalOpen] = useState(false);
   const [signatureModalFieldId, setSignatureModalFieldId] = useState(null);
@@ -100,7 +104,7 @@ export default function PublicSigning() {
   // Prefill typed name from signer
   useEffect(() => {
     if (signerName && !typedName) setTypedName(signerName);
-  }, [signerName]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [signerName]);
 
   // ── Canvas init ────────────────────────────────────────────────────────────
   const initCanvas = useCallback(() => {
@@ -268,7 +272,6 @@ export default function PublicSigning() {
       });
       setSubmitted(true);
     } catch (err) {
-      // eslint-disable-next-line no-console
       console.error('Submit error', err);
       alert(err.response?.data?.detail || err.message || 'Submission failed. Please try again.');
     } finally {
@@ -288,6 +291,24 @@ export default function PublicSigning() {
       alert(err.response?.data?.detail || err.message || 'Could not decline. Please try again.');
     } finally {
       setDeclining(false);
+    }
+  };
+
+  // ── Delegate ───────────────────────────────────────────────────────────────
+  const handleDelegate = async () => {
+    const name = delegateForm.name.trim();
+    const email = delegateForm.email.trim();
+    const reason = delegateForm.reason.trim();
+    if (!name || !email) return;
+    setDelegating(true);
+    try {
+      const res = await apiClient.post(EP.SIGN(token), { action: 'delegate', name, email, reason });
+      setDelegated({ name, email, response: res.data });
+      setDelegateModal(false);
+    } catch (err) {
+      alert(err.response?.data?.detail || err.message || 'Could not delegate. Please try again.');
+    } finally {
+      setDelegating(false);
     }
   };
 
@@ -330,6 +351,19 @@ export default function PublicSigning() {
         <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--danger)' }}>Signing Declined</div>
         <div style={{ fontSize: 14, color: 'var(--text-muted)', maxWidth: 400, textAlign: 'center' }}>
           You have declined to sign this document. The sender will be notified.
+        </div>
+      </div>
+    );
+  }
+
+  // ── Render: delegated ─────────────────────────────────────────────────────
+  if (delegated) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', flexDirection: 'column', gap: 12, padding: 24 }}>
+        <div style={{ fontSize: '3rem' }}>↗</div>
+        <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--primary, #2563eb)' }}>Signing Delegated</div>
+        <div style={{ fontSize: 14, color: 'var(--text-muted)', maxWidth: 460, textAlign: 'center' }}>
+          A new signing link was issued to {delegated.name} at {delegated.email}. This signing link has been revoked.
         </div>
       </div>
     );
@@ -404,6 +438,16 @@ export default function PublicSigning() {
             <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>Signing as: {signerName}</div>
           )}
         </div>
+        <button
+          className="btn btn-ghost btn-sm"
+          style={{ color: 'var(--primary, #2563eb)', flexShrink: 0 }}
+          onClick={() => {
+            setDelegateForm({ name: '', email: '', reason: '' });
+            setDelegateModal(true);
+          }}
+        >
+          Delegate
+        </button>
         <button
           className="btn btn-ghost btn-sm"
           style={{ color: 'var(--danger)', flexShrink: 0 }}
@@ -857,6 +901,70 @@ export default function PublicSigning() {
                 onClick={handleDecline}
               >
                 {declining ? 'Declining…' : 'Decline to Sign'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Delegate Modal ── */}
+      {delegateModal && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.4)',
+            zIndex: 500,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 16,
+          }}
+          onClick={(e) => { if (e.target === e.currentTarget) setDelegateModal(false); }}
+        >
+          <div style={{ background: 'white', borderRadius: 12, width: '100%', maxWidth: 460, padding: 24, boxShadow: '0 20px 60px rgba(0,0,0,0.25)' }}>
+            <div style={{ fontWeight: 700, fontSize: 18, marginBottom: 4 }}>Delegate Signing Task</div>
+            <div style={{ fontSize: 13, color: 'var(--text-muted)', marginBottom: 16 }}>
+              Delegation revokes this link and emails a new secure link to the delegate.
+            </div>
+            <div className="form-group">
+              <label className="form-label">Delegate Name</label>
+              <input
+                className="form-input"
+                value={delegateForm.name}
+                placeholder="Full name"
+                onChange={(e) => setDelegateForm((f) => ({ ...f, name: e.target.value }))}
+              />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Delegate Email</label>
+              <input
+                className="form-input"
+                type="email"
+                value={delegateForm.email}
+                placeholder="delegate@example.com"
+                onChange={(e) => setDelegateForm((f) => ({ ...f, email: e.target.value }))}
+              />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Reason</label>
+              <textarea
+                className="form-input"
+                rows={3}
+                placeholder="Optional reason for the delegation"
+                value={delegateForm.reason}
+                onChange={(e) => setDelegateForm((f) => ({ ...f, reason: e.target.value }))}
+                style={{ resize: 'vertical' }}
+              />
+            </div>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16 }}>
+              <button className="btn btn-ghost" onClick={() => setDelegateModal(false)}>Cancel</button>
+              <button
+                className="btn btn-primary"
+                disabled={!delegateForm.name.trim() || !delegateForm.email.trim() || delegating}
+                onClick={handleDelegate}
+              >
+                {delegating ? 'Delegating…' : 'Delegate'}
               </button>
             </div>
           </div>

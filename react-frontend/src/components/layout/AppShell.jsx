@@ -1,17 +1,19 @@
 import { useEffect } from 'react';
-import { Outlet } from 'react-router-dom';
+import { Outlet, useLocation } from 'react-router-dom';
 import Sidebar from './Sidebar';
 import Topbar from './Topbar';
+import ErrorBoundary from './ErrorBoundary';
 import { useUiStore } from '../../store/uiStore';
 import { useAuthStore } from '../../store/authStore';
 
 export default function AppShell() {
   const { sidebarCollapsed, mobileSidebarOpen, closeMobileSidebar } = useUiStore();
   const fetchMe = useAuthStore((s) => s.fetchMe);
+  const location = useLocation();
 
   useEffect(() => {
     fetchMe();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <div className={`app-shell ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
@@ -25,7 +27,9 @@ export default function AppShell() {
       <div className="main-area">
         <Topbar />
         <main className="page-content" id="page-content" role="main" aria-label="Page content">
-          <Outlet />
+          <ErrorBoundary resetKey={location.pathname}>
+            <Outlet />
+          </ErrorBoundary>
         </main>
       </div>
     </div>

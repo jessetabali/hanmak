@@ -1320,7 +1320,7 @@ class TenantScopedAPITests(TestCase):
         }, format='json')
 
         self.assertEqual(setup_response.status_code, status.HTTP_201_CREATED)
-        create_response = self.client.post('/api/v1/envelopes/create_from_template/', {
+        create_response = self.client.post('/api/v1/envelopes/create-from-template/', {
             'organization': self.org_a.id,
             'template_version': setup_response.data['id'],
             'name': 'Native Envelope',

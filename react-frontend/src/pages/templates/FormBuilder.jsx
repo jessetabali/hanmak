@@ -127,22 +127,6 @@ export default function FormBuilder() {
   const docParam = searchParams.get('doc'); // specific document ID passed from template creation
   const toast = useToast();
 
-  // Gap #4 — guard: builder requires an existing template ID
-  if (!templateId) {
-    return (
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '60vh', gap: '1rem', textAlign: 'center' }}>
-        <div style={{ fontSize: '2.5rem' }}>🛠</div>
-        <div style={{ fontWeight: 700, fontSize: '1.125rem' }}>No template selected</div>
-        <p style={{ color: 'var(--text-muted)', maxWidth: 360, margin: 0, fontSize: '0.875rem' }}>
-          The Form Builder requires an existing template. Create a new template from the Templates page first, then open it here.
-        </p>
-        <button className="btn btn-primary" onClick={() => navigate('/templates')}>
-          Go to Templates
-        </button>
-      </div>
-    );
-  }
-
   // ── State ──────────────────────────────────────────────────────────────────
   const [parties, setParties] = useState([
     { id: 'party-1', name: 'Party 1', color: PARTY_COLORS[0] },
@@ -171,14 +155,14 @@ export default function FormBuilder() {
   // ── Data fetching ──────────────────────────────────────────────────────────
   const { data: templateData } = useApiQuery(
     ['template', templateId],
-    EP.TEMPLATE(templateId),
+    templateId ? EP.TEMPLATE(templateId) : null,
     {},
     { enabled: !!templateId },
   );
 
   const { data: versionsData } = useApiQuery(
     ['template-versions', templateId],
-    EP.TEMPLATE_VERSIONS,
+    templateId ? EP.TEMPLATE_VERSIONS : null,
     { template: templateId },
     { enabled: !!templateId },
   );
@@ -306,7 +290,7 @@ export default function FormBuilder() {
         toast.error('Could not render document pages: ' + (err.response?.data?.detail || err.message));
       })
       .finally(() => setLoadingPages(false));
-  }, [documentsData, specificDocData]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [documentsData, specificDocData]);
 
   // ── Save mutation ──────────────────────────────────────────────────────────
   const saveMutation = useApiMutation(
@@ -557,6 +541,23 @@ export default function FormBuilder() {
 
   // ── Render ────────────────────────────────────────────────────────────────
   const selectedField = selectedFieldIdx !== null ? fields[selectedFieldIdx] : null;
+
+  // Gap #4 — guard: builder requires an existing template ID. Keep this after
+  // hooks so the component always calls hooks in the same order.
+  if (!templateId) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '60vh', gap: '1rem', textAlign: 'center' }}>
+        <div style={{ fontSize: '2.5rem' }}>🛠</div>
+        <div style={{ fontWeight: 700, fontSize: '1.125rem' }}>No template selected</div>
+        <p style={{ color: 'var(--text-muted)', maxWidth: 360, margin: 0, fontSize: '0.875rem' }}>
+          The Form Builder requires an existing template. Create a new template from the Templates page first, then open it here.
+        </p>
+        <button className="btn btn-primary" onClick={() => navigate('/templates')}>
+          Go to Templates
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div

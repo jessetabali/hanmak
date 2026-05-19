@@ -24,6 +24,8 @@ export default function EnvelopeDetail() {
   const [voidReason, setVoidReason] = useState('');
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [remindingId, setRemindingId] = useState(null);
+  const [delegateModal, setDelegateModal] = useState({ open: false, recipient: null });
+  const [delegateForm, setDelegateForm] = useState({ name: '', email: '', reason: '' });
 
   // ---- Queries ----
   const { data: envelope, isLoading, isError } = useApiQuery(
@@ -74,6 +76,19 @@ export default function EnvelopeDetail() {
     }
   );
 
+  const delegateMutation = useApiMutation(
+    ({ recipientId, payload }) => apiClient.post(EP.RECIPIENT_DELEGATE(recipientId), payload),
+    {
+      invalidateKeys: ['envelope', 'recipients', 'envelopes'],
+      onSuccess: (res) => {
+        toast.success(`Delegated to ${res.data?.name || delegateForm.name}`);
+        setDelegateModal({ open: false, recipient: null });
+        setDelegateForm({ name: '', email: '', reason: '' });
+      },
+      onError: (e) => toast.error(e.response?.data?.detail || e.message || 'Failed to delegate recipient'),
+    }
+  );
+
   // Gap #3 — per-recipient reminder
   const handleRemind = useCallback(async (recipientId) => {
     setRemindingId(recipientId);
@@ -86,6 +101,23 @@ export default function EnvelopeDetail() {
       setRemindingId(null);
     }
   }, [toast]);
+
+  const openDelegateModal = useCallback((recipient) => {
+    setDelegateForm({ name: '', email: '', reason: '' });
+    setDelegateModal({ open: true, recipient });
+  }, []);
+
+  const submitDelegate = useCallback(() => {
+    const recipient = delegateModal.recipient;
+    const name = delegateForm.name.trim();
+    const email = delegateForm.email.trim();
+    const reason = delegateForm.reason.trim();
+    if (!recipient || !name || !email) return;
+    delegateMutation.mutate({
+      recipientId: recipient.id,
+      payload: { name, email, reason },
+    });
+  }, [delegateForm, delegateModal.recipient, delegateMutation]);
 
   // Gap #1 — copy signing link to clipboard
   const copySigningLink = useCallback((r) => {
@@ -344,6 +376,7 @@ export default function EnvelopeDetail() {
                   const isSigned = ['signed', 'completed'].includes(r.status);
                   const isDeclined = r.status === 'declined';
                   const canRemind = isActionable && !isSigned && !isDeclined;
+                  const canDelegate = !['signed', 'completed', 'declined', 'delegated'].includes(r.status || 'pending');
                   const hasSigningLink = !!(r.signing_url || r.signing_link || r.token);
 
                   return (
@@ -380,9 +413,14 @@ export default function EnvelopeDetail() {
                             Signing order: {r.routing_order}
                           </div>
                         )}
+                        {r.delegated_from && (
+                          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: 2 }}>
+                            Delegated from recipient #{r.delegated_from}
+                          </div>
+                        )}
 
                         {/* Gap #1 & #3 — signing link copy + reminder */}
-                        {(hasSigningLink || canRemind) && (
+                        {(hasSigningLink || canRemind || canDelegate) && (
                           <div style={{ display: 'flex', gap: '0.375rem', marginTop: '0.5rem', flexWrap: 'wrap' }}>
                             {/* Gap #1 — copy signing link */}
                             {hasSigningLink && (isActionable || isCompleted) && (
@@ -405,6 +443,16 @@ export default function EnvelopeDetail() {
                                 title="Send a reminder email to this signer"
                               >
                                 {remindingId === r.id ? 'Sending…' : '✉ Remind'}
+                              </button>
+                            )}
+                            {canDelegate && (
+                              <button
+                                className="btn btn-ghost btn-sm"
+                                style={{ fontSize: '0.72rem' }}
+                                onClick={() => openDelegateModal(r)}
+                                title="Delegate this recipient to another signer"
+                              >
+                                ↗ Delegate
                               </button>
                             )}
                           </div>
@@ -466,6 +514,65 @@ export default function EnvelopeDetail() {
         confirmLabel="Delete"
         danger
       />
+
+      <Modal
+        open={delegateModal.open}
+        onClose={() => setDelegateModal({ open: false, recipient: null })}
+        title="Delegate Recipient"
+        size="sm"
+        footer={
+          <>
+            <button
+              className="btn btn-ghost"
+              onClick={() => setDelegateModal({ open: false, recipient: null })}
+            >
+              Cancel
+            </button>
+            <button
+              className="btn btn-primary"
+              disabled={!delegateForm.name.trim() || !delegateForm.email.trim() || delegateMutation.isPending}
+              onClick={submitDelegate}
+            >
+              {delegateMutation.isPending ? 'Delegating…' : 'Delegate'}
+            </button>
+          </>
+        }
+      >
+        <div className="flex flex-col gap-4">
+          <p style={{ margin: 0, fontSize: '0.875rem', color: 'var(--text-secondary)' }}>
+            Delegating revokes the current signing link for {delegateModal.recipient?.name || 'this recipient'} and issues a new secure link to the delegate.
+          </p>
+          <div className="form-group">
+            <label className="form-label">Delegate Name</label>
+            <input
+              className="form-input"
+              placeholder="Full name"
+              value={delegateForm.name}
+              onChange={(e) => setDelegateForm((f) => ({ ...f, name: e.target.value }))}
+            />
+          </div>
+          <div className="form-group">
+            <label className="form-label">Delegate Email</label>
+            <input
+              className="form-input"
+              type="email"
+              placeholder="delegate@example.com"
+              value={delegateForm.email}
+              onChange={(e) => setDelegateForm((f) => ({ ...f, email: e.target.value }))}
+            />
+          </div>
+          <div className="form-group">
+            <label className="form-label">Reason</label>
+            <textarea
+              className="form-input"
+              rows={3}
+              placeholder="Optional reason for the delegation"
+              value={delegateForm.reason}
+              onChange={(e) => setDelegateForm((f) => ({ ...f, reason: e.target.value }))}
+            />
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }

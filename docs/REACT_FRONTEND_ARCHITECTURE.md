@@ -254,36 +254,40 @@ All 44 pages are fully implemented and wired to the live Django/DRF backend. The
 
 ---
 
-## Feature Parity Gaps vs Vanilla JS Prototype
+## Feature Parity Closure vs Vanilla JS Prototype
 
-The following UI elements exist in `hanmak_demo_mock_directory/` but are not yet implemented in the React frontend. Priority is **High / Medium / Low**.
+The previously tracked UI parity gaps from `hanmak_demo_mock_directory/` have been ported to the React frontend. Keep this table as a verification map during mock-removal QA.
 
-| Section | Gap | Priority |
+| Section | Previously Tracked Gap | Status |
 |---|---|---|
-| **Audit Trail** | Integrity verification panel (SHA-256 hash checker) | High |
-| **Audit Trail** | Compliance standards sidebar (GDPR / HIPAA / SOC2 badges) | Medium |
-| **Audit Trail** | IP address and geolocation in event rows | Medium |
-| **Approvals** | "Changes Requested" tab | High |
-| **Approvals** | By Approver Load sidebar | Medium |
-| **Approvals** | Quick Delegation card (most recent delegations) | Low |
-| **Settings / General** | Missing toggles: completion certificates, bulk send, mobile signing | High |
-| **Settings / General** | Timezone selector field | Medium |
-| **Settings / General** | Support email field | Medium |
-| **Admin / Users** | Session list in user drawer | Medium |
-| **Admin / Users** | MFA device list in user drawer | Medium |
-| **Webhooks** | Delivery stats sidebar (success rate, avg latency) | Medium |
-| **Webhooks** | Retry policy info card | Low |
-| **Dashboard** | Webhook Health card | Medium |
-| **Dashboard** | Workflow Snapshot card | Medium |
-| **Dashboard** | Quick Actions card | Low |
-| **Background Tasks** | Email Reliability stats card | Low |
-| **Background Tasks** | Beat Scheduler info card | Low |
-| **Inbox** | Fields remaining count on each item | Medium |
-| **Inbox** | Work Type filter | Low |
-| **Inbox** | Tasks tab | Medium |
-| **Branding** | 4 extra color pickers (link, border, sidebar bg, sidebar text) | Low |
-| **Billing** | Plans comparison sidebar | Low |
-| **Billing** | Payment Webhook Events section | Medium |
+| **Audit Trail** | Integrity verification panel (SHA-256 hash checker) | Implemented |
+| **Audit Trail** | Compliance standards sidebar (GDPR / HIPAA / SOC2 badges) | Implemented |
+| **Audit Trail** | IP address and geolocation in event rows | Implemented |
+| **Approvals** | "Changes Requested" tab | Implemented |
+| **Approvals** | By Approver Load sidebar | Implemented |
+| **Approvals** | Quick Delegation card (most recent delegations) | Implemented |
+| **Settings / General** | Missing toggles: completion certificates, bulk send, mobile signing | Implemented |
+| **Settings / General** | Timezone selector field | Implemented |
+| **Settings / General** | Support email field | Implemented |
+| **Admin / Users** | Session list in user drawer | Implemented |
+| **Admin / Users** | MFA device list in user drawer | Implemented |
+| **Webhooks** | Delivery stats sidebar (success rate, avg latency) | Implemented |
+| **Webhooks** | Retry policy info card | Implemented |
+| **Dashboard** | Webhook Health card | Implemented |
+| **Dashboard** | Workflow Snapshot card | Implemented |
+| **Dashboard** | Quick Actions card | Implemented |
+| **Background Tasks** | Email Reliability stats card | Implemented |
+| **Background Tasks** | Beat Scheduler info card | Implemented |
+| **Inbox** | Fields remaining count on each item | Implemented |
+| **Inbox** | Work Type filter | Implemented |
+| **Inbox** | Tasks tab | Implemented |
+| **Branding** | 4 extra color pickers (link, border, sidebar bg, sidebar text) | Implemented |
+| **Billing** | Plans comparison sidebar | Implemented |
+| **Billing** | Payment Webhook Events section | Implemented |
+| **Public Signing** | Delegate signer flow | Implemented |
+| **Envelope Detail** | Recipient delegation flow | Implemented |
+
+See `docs/MVP_READINESS_CHECKLIST.md` for the final automated and manual gates before removing the vanilla JS mock.
 
 ---
 
