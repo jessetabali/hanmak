@@ -63,7 +63,7 @@ def normalize_field_geometry(field, target_width=SIGNER_PAGE_WIDTH):
 
 
 @transaction.atomic
-def setup_template_version(template, document, fields=None, created_by=None, changelog='Backend setup'):
+def setup_template_version(template, document, fields=None, parties_data=None, created_by=None, changelog='Backend setup'):
     fields = [normalize_field_geometry(field) for field in (fields or DEFAULT_STARTER_FIELDS)]
     next_version = (template.versions.order_by('-version_number').values_list('version_number', flat=True).first() or 0) + 1
     template.status = Template.Status.ACTIVE
@@ -84,13 +84,17 @@ def setup_template_version(template, document, fields=None, created_by=None, cha
         is_published=True,
         created_by=created_by,
     )
+    party_label_map = {p['role_key']: p.get('label', p['role_key'].replace('-', ' ').title()) for p in (parties_data or [])}
+    party_order_map = {p['role_key']: p.get('routing_order', i + 1) for i, p in enumerate(parties_data or [])}
     parties = {}
     for party_key in sorted({template_field_party_key(field) for field in fields}):
+        label = party_label_map.get(party_key, party_key.replace('-', ' ').title())
+        order = party_order_map.get(party_key, int(party_key.split('-')[-1]) if party_key.split('-')[-1].isdigit() else 1)
         parties[party_key] = TemplateParty.objects.create(
             template_version=version,
             role_key=party_key,
-            label=party_key.replace('-', ' ').title(),
-            routing_order=int(party_key.split('-')[-1]) if party_key.split('-')[-1].isdigit() else 1,
+            label=label,
+            routing_order=order,
         )
     for field in fields:
         FormField.objects.create(

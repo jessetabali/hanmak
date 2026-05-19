@@ -58,7 +58,7 @@ export default function Security() {
   }, [s, initialized]);
 
   const saveMutation = useApiMutation(
-    (payload) => apiClient.patch(EP.SECURITY_SETTINGS, payload),
+    (payload) => apiClient.post(EP.SECURITY_SETTINGS, payload),
     {
       invalidateKeys: ['security-settings'],
       onSuccess: () => toast.success('Security settings saved'),

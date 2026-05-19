@@ -71,7 +71,7 @@ export default function EnvelopeList() {
   const [createModal, setCreateModal] = useState(false);
   const [createName, setCreateName] = useState('');
   const [createTemplateId, setCreateTemplateId] = useState('');
-  const [createRecipients, setCreateRecipients] = useState([{ name: '', email: '' }]);
+  const [createRecipients, setCreateRecipients] = useState([{ name: '', email: '', role: 'signer', party_key: '' }]);
 
   // Void modal
   const [voidModal, setVoidModal] = useState({ open: false, id: null });
@@ -95,7 +95,7 @@ export default function EnvelopeList() {
   const { data, isLoading, refetch } = useApiQuery(
     ['envelopes', search, status, sort, dueFrom, dueTo, page],
     EP.ENVELOPES,
-    { search, status, ordering: sort, due_date_after: dueFrom, due_date_before: dueTo, page }
+    { search, status, ordering: sort, due_from: dueFrom, due_to: dueTo, page }
   );
 
   const { data: templatesData } = useApiQuery(
@@ -168,7 +168,10 @@ export default function EnvelopeList() {
   );
 
   const createMutation = useApiMutation(
-    (payload) => apiClient.post(EP.ENVELOPES, payload),
+    (payload) => {
+      const { useTemplateEndpoint, ...data } = payload;
+      return apiClient.post(useTemplateEndpoint ? EP.ENVELOPE_CREATE_FROM_TEMPLATE : EP.ENVELOPES, data);
+    },
     {
       invalidateKeys: ['envelopes', 'envelopes-summary'],
       onSuccess: (res) => {
@@ -177,7 +180,7 @@ export default function EnvelopeList() {
         resetCreateForm();
         navigate(`/envelopes/${res.data.id}`);
       },
-      onError: (e) => toast.error(e.response?.data?.detail || e.message),
+      onError: (e) => toast.error(e.message),
     }
   );
 
@@ -271,7 +274,7 @@ export default function EnvelopeList() {
   const resetCreateForm = () => {
     setCreateName('');
     setCreateTemplateId('');
-    setCreateRecipients([{ name: '', email: '' }]);
+    setCreateRecipients([{ name: '', email: '', role: 'signer', party_key: '' }]);
   };
 
   const handleCreateSubmit = () => {
@@ -281,16 +284,44 @@ export default function EnvelopeList() {
     const missingEmail = createRecipients.find(r => r.name.trim() && !r.email.trim());
     if (missingEmail) { toast.error(`Email is required for ${missingEmail.name}`); return; }
     const orgId = localStorage.getItem('HANMAK_ORGANIZATION_ID');
-    const payload = {
-      name: createName.trim(),
-      organization: orgId ? Number(orgId) : undefined,
-      recipients: validRecipients.map((r, i) => ({ name: r.name.trim(), email: r.email.trim(), routing_order: i + 1 })),
-    };
-    if (createTemplateId) payload.template = Number(createTemplateId);
-    createMutation.mutate(payload);
+    const org = orgId ? Number(orgId) : undefined;
+
+    const selectedTemplate = createTemplateId ? templates.find(t => String(t.id) === String(createTemplateId)) : null;
+    const latestVersionId = selectedTemplate?.latest_version;
+
+    if (selectedTemplate && latestVersionId) {
+      // Use create_from_template when a template with a published version is selected
+      createMutation.mutate({
+        useTemplateEndpoint: true,
+        organization: org,
+        template_version: latestVersionId,
+        name: createName.trim(),
+        send: false,
+        recipients: validRecipients.map((r, i) => ({
+          name: r.name.trim(),
+          email: r.email.trim(),
+          role: r.role || 'signer',
+          routing_order: i + 1,
+          ...(r.party_key ? { party_key: r.party_key } : {}),
+        })),
+      });
+    } else {
+      // Regular create (no template or template has no version)
+      createMutation.mutate({
+        name: createName.trim(),
+        organization: org,
+        recipients: validRecipients.map((r, i) => ({
+          name: r.name.trim(),
+          email: r.email.trim(),
+          role: r.role || 'signer',
+          routing_order: i + 1,
+        })),
+        ...(createTemplateId ? { template: Number(createTemplateId) } : {}),
+      });
+    }
   };
 
-  const addRecipientRow = () => setCreateRecipients(prev => [...prev, { name: '', email: '' }]);
+  const addRecipientRow = () => setCreateRecipients(prev => [...prev, { name: '', email: '', role: 'signer', party_key: '' }]);
   const updateRecipient = (idx, field, val) => {
     setCreateRecipients(prev => prev.map((r, i) => i === idx ? { ...r, [field]: val } : r));
   };
@@ -468,7 +499,7 @@ export default function EnvelopeList() {
                         {recipients.length} recipient{recipients.length !== 1 ? 's' : ''}
                       </div>
                     </td>
-                    <td style={{ fontSize: '0.8125rem' }}>{env.template || '—'}</td>
+                    <td style={{ fontSize: '0.8125rem' }}>{env.template_name || '—'}</td>
                     <td style={{ fontSize: '0.8125rem', color: 'var(--text-muted)' }}>{formatDate(env.sent_at)}</td>
                     <td style={{ fontSize: '0.8125rem', color: 'var(--text-muted)' }}>
                       {env.due_date ? formatDate(env.due_date) : '—'}
@@ -698,34 +729,65 @@ export default function EnvelopeList() {
 
           <div>
             <div style={{ fontWeight: 700, marginBottom: '0.5rem' }}>Recipients *</div>
-            <div className="flex flex-col gap-2">
-              {createRecipients.map((r, idx) => (
-                <div key={idx} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: '0.5rem', alignItems: 'center' }}>
-                  <input
-                    className="form-input"
-                    placeholder="Full name"
-                    value={r.name}
-                    onChange={e => updateRecipient(idx, 'name', e.target.value)}
-                  />
-                  <input
-                    className="form-input"
-                    placeholder="Email address"
-                    type="email"
-                    value={r.email}
-                    onChange={e => updateRecipient(idx, 'email', e.target.value)}
-                  />
-                  {createRecipients.length > 1 && (
-                    <button
-                      className="btn btn-ghost btn-sm"
-                      style={{ color: 'var(--danger)' }}
-                      onClick={() => removeRecipient(idx)}
-                    >
-                      ×
-                    </button>
-                  )}
+            {(() => {
+              const selectedTpl = createTemplateId ? templates.find(t => String(t.id) === String(createTemplateId)) : null;
+              const partyOptions = selectedTpl?.party_options || [];
+              const hasParties = partyOptions.length > 0;
+              const cols = hasParties ? '1fr 1fr 100px 120px auto' : '1fr 1fr 100px auto';
+              return (
+                <div className="flex flex-col gap-2">
+                  {createRecipients.map((r, idx) => (
+                    <div key={idx} style={{ display: 'grid', gridTemplateColumns: cols, gap: '0.5rem', alignItems: 'center' }}>
+                      <input
+                        className="form-input"
+                        placeholder="Full name"
+                        value={r.name}
+                        onChange={e => updateRecipient(idx, 'name', e.target.value)}
+                      />
+                      <input
+                        className="form-input"
+                        placeholder="Email address"
+                        type="email"
+                        value={r.email}
+                        onChange={e => updateRecipient(idx, 'email', e.target.value)}
+                      />
+                      <select
+                        className="form-input"
+                        value={r.role}
+                        onChange={e => updateRecipient(idx, 'role', e.target.value)}
+                        title="Role"
+                      >
+                        <option value="signer">Signer</option>
+                        <option value="approver">Approver</option>
+                        <option value="cc">CC</option>
+                      </select>
+                      {hasParties && (
+                        <select
+                          className="form-input"
+                          value={r.party_key}
+                          onChange={e => updateRecipient(idx, 'party_key', e.target.value)}
+                          title="Party"
+                        >
+                          <option value="">— Party —</option>
+                          {partyOptions.map(p => (
+                            <option key={p.key} value={p.key}>{p.label}</option>
+                          ))}
+                        </select>
+                      )}
+                      {createRecipients.length > 1 ? (
+                        <button
+                          className="btn btn-ghost btn-sm"
+                          style={{ color: 'var(--danger)' }}
+                          onClick={() => removeRecipient(idx)}
+                        >
+                          ×
+                        </button>
+                      ) : <div />}
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
+              );
+            })()}
             <button className="btn btn-ghost btn-sm" style={{ marginTop: '0.5rem' }} onClick={addRecipientRow}>
               + Add Recipient
             </button>

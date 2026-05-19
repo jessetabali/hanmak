@@ -1,7 +1,15 @@
 import axios from 'axios';
 import { useErrorLogStore } from '../store/errorLogStore';
 
-const BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api/v1';
+function normalizeApiBaseUrl(value) {
+  const raw = String(value || '').trim().replace(/\/+$/, '');
+  if (!raw) return '/api/v1';
+  return raw.endsWith('/api/v1') ? raw : `${raw}/api/v1`;
+}
+
+const BASE_URL = normalizeApiBaseUrl(
+  import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_URL,
+);
 
 export const apiClient = axios.create({
   baseURL: BASE_URL,
@@ -69,14 +77,17 @@ apiClient.interceptors.response.use(
 
     // Improve error.message so components using `e.message` see the actual
     // backend validation error instead of the generic axios status string.
-    if (error.response?.data && !error.response.data.detail) {
+    if (error.response?.data) {
       const d = error.response.data;
-      if (Array.isArray(d) && d.length) {
+      if (d.detail) {
+        error.message = d.detail;
+      } else if (Array.isArray(d) && d.length) {
         error.message = d.join('; ');
       } else if (d && typeof d === 'object') {
-        const parts = Object.entries(d).map(
-          ([k, v]) => `${k}: ${Array.isArray(v) ? v.join(', ') : String(v)}`
-        );
+        const parts = Object.entries(d).map(([k, v]) => {
+          const msg = Array.isArray(v) ? v.join(', ') : String(v);
+          return k === 'non_field_errors' ? msg : `${k}: ${msg}`;
+        });
         if (parts.length) error.message = parts.join(' | ');
       } else if (typeof d === 'string' && d) {
         error.message = d;

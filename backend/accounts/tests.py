@@ -744,6 +744,29 @@ class TenantScopedAPITests(TestCase):
         self.assertGreater(len(response.data['features']), 0)
         self.assertIn('name', response.data['features'][0])
 
+    def test_license_activate_and_generate_actions_match_react_frontend(self):
+        self.client.force_authenticate(self.user_a)
+        inactive = LicenseKey.objects.create(
+            organization=self.org_a,
+            key='HM-INACTIVE-001',
+            edition='Pro',
+            status='pending',
+        )
+
+        activate = self.client.post('/api/v1/license-keys/activate/', {'key': inactive.key}, format='json')
+        generate = self.client.post('/api/v1/license-keys/generate/', {
+            'organization': self.org_a.id,
+            'edition': 'Enterprise',
+            'features': ['sso', 'audit_trail'],
+        }, format='json')
+
+        inactive.refresh_from_db()
+        self.assertEqual(activate.status_code, status.HTTP_200_OK)
+        self.assertEqual(inactive.status, 'active')
+        self.assertEqual(generate.status_code, status.HTTP_201_CREATED)
+        self.assertTrue(generate.data['key'].startswith('HM-'))
+        self.assertEqual(generate.data['edition'], 'Enterprise')
+
     def test_data_residency_policy_is_tenant_scoped(self):
         region = DataResidencyRegion.objects.create(code='us', name='United States')
         policy_a = OrganizationDataResidencyPolicy.objects.create(organization=self.org_a, primary_region=region)

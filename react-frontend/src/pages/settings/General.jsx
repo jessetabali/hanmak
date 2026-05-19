@@ -91,7 +91,7 @@ export default function General() {
   }, [data]);
 
   const saveMutation = useApiMutation(
-    (payload) => apiClient.patch(EP.GENERAL_SETTINGS, payload),
+    (payload) => apiClient.post(EP.GENERAL_SETTINGS, payload),
     {
       invalidateKeys: ['general-settings'],
       onSuccess: () => toast.success('General settings saved'),

@@ -112,6 +112,7 @@ class TemplateViewSet(OrganizationScopedQuerySetMixin, viewsets.ModelViewSet):
             template,
             document,
             fields=serializer.validated_data.get('fields'),
+            parties_data=serializer.validated_data.get('parties'),
             created_by=request.user,
             changelog=serializer.validated_data.get('changelog') or 'Backend template setup',
         )
@@ -121,9 +122,10 @@ class TemplateViewSet(OrganizationScopedQuerySetMixin, viewsets.ModelViewSet):
 class TemplateVersionViewSet(OrganizationScopedQuerySetMixin, viewsets.ModelViewSet):
     feature_flag_key = 'template_library'
     write_roles = OrganizationRolePermission.write_roles
-    queryset = TemplateVersion.objects.select_related('template', 'document', 'created_by').prefetch_related('parties').all()
+    queryset = TemplateVersion.objects.select_related('template', 'document', 'created_by').prefetch_related('parties').all().order_by('-version_number')
     serializer_class = TemplateVersionSerializer
     permission_classes = [OrganizationRolePermission]
+    filterset_fields = ['template']
 
 
 class TemplatePartyViewSet(OrganizationScopedQuerySetMixin, viewsets.ModelViewSet):
@@ -132,6 +134,7 @@ class TemplatePartyViewSet(OrganizationScopedQuerySetMixin, viewsets.ModelViewSe
     queryset = TemplateParty.objects.select_related('template_version').all()
     serializer_class = TemplatePartySerializer
     permission_classes = [OrganizationRolePermission]
+    filterset_fields = ['template_version']
 
 
 class EnvelopeViewSet(OrganizationScopedQuerySetMixin, viewsets.ModelViewSet):
@@ -210,7 +213,7 @@ class EnvelopeViewSet(OrganizationScopedQuerySetMixin, viewsets.ModelViewSet):
         assert_not_under_active_legal_hold('envelope', instance.id)
         return super().perform_destroy(instance)
 
-    @decorators.action(detail=False, methods=['post'])
+    @decorators.action(detail=False, methods=['post'], url_path='create-from-template')
     def create_from_template(self, request):
         serializer = CreateEnvelopeFromTemplateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -401,6 +404,32 @@ class RecipientViewSet(OrganizationScopedQuerySetMixin, viewsets.ModelViewSet):
         data['queued_email'] = queued_email_id
         return response.Response(data, status=status.HTTP_201_CREATED)
 
+    @decorators.action(detail=True, methods=['post'])
+    def remind(self, request, pk=None):
+        recipient = self.get_object()
+        envelope = recipient.envelope
+        if envelope.status not in [Envelope.Status.SENT, Envelope.Status.VIEWED, Envelope.Status.PARTIALLY_SIGNED]:
+            return response.Response({'detail': 'Reminders can only be sent for active envelopes.'}, status=status.HTTP_400_BAD_REQUEST)
+        if recipient.status in [Recipient.Status.SIGNED, Recipient.Status.DECLINED, Recipient.Status.DELEGATED]:
+            return response.Response({'detail': f'Cannot remind a recipient with status "{recipient.status}".'}, status=status.HTTP_400_BAD_REQUEST)
+        session, _ = SigningSession.objects.get_or_create(envelope=envelope, recipient=recipient)
+        signing_url = absolute_signing_url(request, session)
+        subject, body, html_body = render_email(EmailMessage.Kind.REMINDER, envelope, recipient, signing_url)
+        message = EmailMessage.objects.create(
+            organization=envelope.organization,
+            envelope=envelope,
+            recipient=recipient,
+            signing_session=session,
+            kind=EmailMessage.Kind.REMINDER,
+            to_email=recipient.email,
+            subject=subject,
+            body=body,
+            html_body=html_body,
+            queued_by=request.user,
+        )
+        deliver_email_message_task.apply_async(args=[message.id], queue='email')
+        return response.Response({'queued_email_id': message.id})
+
 
 class FormFieldViewSet(OrganizationScopedQuerySetMixin, viewsets.ModelViewSet):
     feature_flag_key = 'form_builder'
@@ -408,3 +437,4 @@ class FormFieldViewSet(OrganizationScopedQuerySetMixin, viewsets.ModelViewSet):
     queryset = FormField.objects.select_related('template', 'envelope', 'recipient').all().order_by('page', 'y', 'x')
     serializer_class = FormFieldSerializer
     permission_classes = [OrganizationRolePermission]
+    filterset_fields = ['template', 'template_version', 'envelope']

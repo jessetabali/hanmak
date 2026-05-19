@@ -238,7 +238,7 @@ export default function BackgroundTasks() {
   );
 
   const purgeMutation = useApiMutation(
-    () => apiClient.post('/task-runs/purge/', { status: 'completed' }),
+    () => apiClient.post('/task-runs/purge_failed/', {}),
     {
       invalidateKeys: ['task-runs', 'task-summary'],
       onSuccess: (res) => {

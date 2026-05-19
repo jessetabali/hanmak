@@ -64,9 +64,16 @@ class RecipientDelegationSerializer(serializers.Serializer):
     reason = serializers.CharField(required=False, allow_blank=True)
 
 
+class TemplatePartyInputSerializer(serializers.Serializer):
+    role_key = serializers.CharField(max_length=80)
+    label = serializers.CharField(max_length=255)
+    routing_order = serializers.IntegerField(required=False, min_value=1)
+
+
 class TemplateSetupSerializer(serializers.Serializer):
     document = serializers.IntegerField()
     fields = serializers.ListField(child=serializers.DictField(), required=False)
+    parties = serializers.ListField(child=TemplatePartyInputSerializer(), required=False)
     changelog = serializers.CharField(required=False, allow_blank=True)
 
 
@@ -94,13 +101,14 @@ class TemplateSerializer(serializers.ModelSerializer):
     latest_version = serializers.SerializerMethodField()
     field_count = serializers.SerializerMethodField()
     party_keys = serializers.SerializerMethodField()
+    party_options = serializers.SerializerMethodField()
 
     class Meta:
         model = Template
         fields = [
             'id', 'organization', 'name', 'description', 'category', 'version',
             'status', 'created_by', 'fields', 'versions', 'latest_version',
-            'field_count', 'party_keys', 'created_at', 'updated_at',
+            'field_count', 'party_keys', 'party_options', 'created_at', 'updated_at',
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
 
@@ -126,6 +134,15 @@ class TemplateSerializer(serializers.ModelSerializer):
             return list(latest.parties.order_by('routing_order').values_list('role_key', flat=True))
         return []
 
+    def get_party_options(self, obj):
+        latest = next(iter(obj.versions.all()), None)
+        if latest:
+            return [
+                {'key': p.role_key, 'label': p.label}
+                for p in latest.parties.order_by('routing_order')
+            ]
+        return []
+
 
 class EnvelopeSerializer(serializers.ModelSerializer):
     recipients = RecipientSerializer(many=True, required=False)
@@ -133,13 +150,14 @@ class EnvelopeSerializer(serializers.ModelSerializer):
     field_values = serializers.SerializerMethodField()
     documents = serializers.SerializerMethodField()
     sender_username = serializers.CharField(source='sender.username', read_only=True)
+    template_name = serializers.CharField(source='template.name', read_only=True, default=None)
     completion_percent = serializers.SerializerMethodField()
 
     class Meta:
         model = Envelope
         fields = [
             'id', 'organization', 'template', 'template_version', 'name', 'status', 'sender',
-            'sender_username', 'message', 'due_date', 'sent_at', 'completed_at',
+            'sender_username', 'template_name', 'message', 'due_date', 'sent_at', 'completed_at',
             'void_reason', 'recipients', 'fields', 'completion_percent',
             'field_values', 'documents',
             'created_at', 'updated_at',
@@ -211,8 +229,6 @@ class EnvelopeStatusSerializer(serializers.Serializer):
                 raise serializers.ValidationError(f'Cannot send an envelope with status "{envelope.status}".')
             if not envelope.recipients.exists():
                 raise serializers.ValidationError('Add at least one recipient before sending.')
-            if not envelope.fields.exists():
-                raise serializers.ValidationError('Add at least one field before sending.')
             if not envelope.recipients.exclude(role=Recipient.Role.CC).exists():
                 raise serializers.ValidationError('Add at least one signer or approver before sending.')
         if status == Envelope.Status.VOIDED and envelope.status in [Envelope.Status.COMPLETED, Envelope.Status.VOIDED]:

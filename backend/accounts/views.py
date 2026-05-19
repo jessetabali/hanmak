@@ -1367,6 +1367,16 @@ class UserSessionViewSet(viewsets.ReadOnlyModelViewSet):
         bump_auth_version(session.user)
         return response.Response(self.get_serializer(session).data)
 
+    @decorators.action(detail=False, methods=['post'])
+    def revoke_others(self, request):
+        current_session_id = request.data.get('current_session')
+        queryset = self.get_queryset().filter(user=request.user, revoked_at__isnull=True)
+        if current_session_id:
+            queryset = queryset.exclude(id=current_session_id)
+        count = queryset.update(revoked_at=timezone.now())
+        bump_auth_version(request.user)
+        return response.Response({'ok': True, 'revoked_count': count})
+
 
 class ObjectPermissionViewSet(OrganizationScopedQuerySetMixin, viewsets.ModelViewSet):
     feature_flag_key = 'admin_roles'
