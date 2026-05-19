@@ -5,6 +5,13 @@ import { apiClient } from '../../api/client';
 import { EP } from '../../api/endpoints';
 import { useToast } from '../../hooks/useToast';
 import Spinner from '../../components/ui/Spinner';
+import * as pdfjsLib from 'pdfjs-dist';
+
+// Configure the PDF.js worker (bundled alongside the library)
+pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
+  'pdfjs-dist/build/pdf.worker.min.mjs',
+  import.meta.url,
+).href;
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -71,6 +78,25 @@ const FIELD_GROUPS = [
 
 const DOC_WIDTH = 1040;
 
+// ─── Client-side PDF rendering ────────────────────────────────────────────────
+
+async function renderPdfFromBytes(arrayBuffer) {
+  const pdfDoc = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+  const pages = [];
+  for (let i = 1; i <= pdfDoc.numPages; i++) {
+    const page = await pdfDoc.getPage(i);
+    const viewport = page.getViewport({ scale: 1 });
+    const scale = DOC_WIDTH / viewport.width;
+    const scaledViewport = page.getViewport({ scale });
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(scaledViewport.width);
+    canvas.height = Math.round(scaledViewport.height);
+    await page.render({ canvasContext: canvas.getContext('2d'), viewport: scaledViewport }).promise;
+    pages.push({ url: canvas.toDataURL('image/png'), width: canvas.width, height: canvas.height });
+  }
+  return pages;
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function partyColor(parties, partyId) {
@@ -129,6 +155,8 @@ export default function FormBuilder() {
   const [pageImages, setPageImages] = useState([]); // [{url, width, height}]
   const [saving, setSaving] = useState(false);
   const [loadingPages, setLoadingPages] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [dropActive, setDropActive] = useState(false);
   const [templateName, setTemplateName] = useState('New Template');
   const [addPartyName, setAddPartyName] = useState('');
   const [showAddParty, setShowAddParty] = useState(false);
@@ -138,6 +166,7 @@ export default function FormBuilder() {
   const dragRef = useRef({ active: false, fieldIdx: null, startX: 0, startY: 0, origX: 0, origY: 0 });
   const pageRefs = useRef([]);
   const loadedDocIdRef = useRef(null); // ID of the document currently loaded on the canvas
+  const fileInputRef = useRef(null);
 
   // ── Data fetching ──────────────────────────────────────────────────────────
   const { data: templateData } = useApiQuery(
@@ -210,32 +239,68 @@ export default function FormBuilder() {
     })());
     if (!doc) return;
     loadedDocIdRef.current = doc.id;
-    // If document already has rendered pages, use them directly
-    if (doc.pages?.length && doc.pages.some((p) => p.image_url)) {
-      const imgs = doc.pages
+
+    const docId = doc.id;
+
+    // ── Primary path: fetch the PDF file and render client-side via PDF.js ──
+    // This produces pixel-accurate previews regardless of backend renderer.
+    const fileUrl = doc.file_url || doc.file || null;
+    if (fileUrl) {
+      setLoadingPages(true);
+      (async () => {
+        try {
+          const res = await apiClient.get(fileUrl, { responseType: 'arraybuffer' });
+          const pages = await renderPdfFromBytes(res.data);
+          setPageImages(pages);
+        } catch (err) {
+          toast.error('Could not render document: ' + (err.message || 'unknown error'));
+        } finally {
+          setLoadingPages(false);
+        }
+      })();
+      // Also call prepare-for-builder in the background so the backend has
+      // server-side page images for the signing view (non-blocking).
+      apiClient
+        .post(EP.DOCUMENT_PREPARE(docId), { page_count: doc.page_count || 1, width: DOC_WIDTH })
+        .catch(() => {/* best-effort */});
+      return;
+    }
+
+    // ── Fallback: no file_url — call prepare-for-builder for server images ──
+    setLoadingPages(true);
+
+    const applyPages = (pagesArr) => {
+      if (!pagesArr?.length) return;
+      const imgs = pagesArr
         .slice()
         .sort((a, b) => a.page_number - b.page_number)
         .map((p) => ({ url: p.image_url, width: p.width || DOC_WIDTH, height: p.height || 1471 }));
       setPageImages(imgs);
-      return;
-    }
-    // Otherwise call prepare + render_pages
-    const docId = doc.id;
-    setLoadingPages(true);
+    };
+
     apiClient
       .post(EP.DOCUMENT_PREPARE(docId), { page_count: doc.page_count || 1, width: DOC_WIDTH })
-      .then(() => apiClient.post(EP.DOCUMENT_RENDER_PAGES(docId), { page_count: doc.page_count || 1, width: DOC_WIDTH }))
-      .then((res) => {
-        const data = res.data;
-        if (data?.pages?.length) {
-          const imgs = data.pages
-            .slice()
-            .sort((a, b) => a.page_number - b.page_number)
-            .map((p) => ({ url: p.image_url, width: p.width || DOC_WIDTH, height: p.height || 1471 }));
-          setPageImages(imgs);
-        } else if (data?.image_url) {
-          setPageImages([{ url: data.image_url, width: DOC_WIDTH, height: 1471 }]);
+      .then((prepRes) => {
+        const prepData = prepRes.data;
+        const fromPrepare = prepData?.rendered_pages?.length
+          ? prepData.rendered_pages
+          : prepData?.pages?.length
+            ? prepData.pages
+            : null;
+        if (fromPrepare) {
+          applyPages(fromPrepare);
+          return null;
         }
+        const pc = prepData?.page_count || doc.page_count || 1;
+        return apiClient.post(EP.DOCUMENT_RENDER_PAGES(docId), { page_count: pc, width: DOC_WIDTH });
+      })
+      .then((res) => {
+        if (!res) return;
+        const data = res.data;
+        const pagesArr = Array.isArray(data)
+          ? data
+          : data?.pages ?? data?.rendered_pages ?? [];
+        applyPages(pagesArr);
       })
       .catch((err) => {
         toast.error('Could not render document pages: ' + (err.response?.data?.detail || err.message));
@@ -374,6 +439,60 @@ export default function FormBuilder() {
     setShowAddParty(false);
   }, [addPartyName, parties.length]);
 
+  // ── PDF upload directly from the builder ─────────────────────────────────
+  const handleUploadPdf = useCallback(async (file) => {
+    if (!file) return;
+    if (file.type !== 'application/pdf') {
+      toast.error('Only PDF files are supported');
+      return;
+    }
+    const orgId = Number(localStorage.getItem('HANMAK_ORGANIZATION_ID'));
+    setUploading(true);
+    setLoadingPages(true);
+
+    try {
+      // ── Phase 1: client-side PDF rendering via PDF.js ──────────────────
+      const arrayBuffer = await file.arrayBuffer();
+      const pages = await renderPdfFromBytes(arrayBuffer);
+      const numPages = pages.length;
+
+      // Show pages immediately — user can start placing fields right away
+      setPageImages(pages);
+      setUploading(false);
+      setLoadingPages(false);
+      toast.success(`Loaded "${file.name}" — ${numPages} page${numPages !== 1 ? 's' : ''}`);
+
+      // ── Phase 2: upload to backend in the background ───────────────────
+      // This registers the document in the DB so it can be saved with the
+      // template. Failures are reported via toast but don't block the user.
+      try {
+        const form = new FormData();
+        form.append('file', file);
+        form.append('title', file.name.replace(/\.pdf$/i, ''));
+        form.append('organization', orgId);
+        const uploadRes = await apiClient.post(EP.DOCUMENTS, form, {
+          headers: { 'Content-Type': 'multipart/form-data' },
+        });
+        const doc = uploadRes.data;
+        loadedDocIdRef.current = doc.id;
+
+        // Trigger prepare-for-builder so the backend also generates server-side
+        // images (used during signing). We don't need the response for the preview.
+        apiClient.post(EP.DOCUMENT_PREPARE(doc.id), {
+          page_count: doc.page_count || numPages,
+          width: DOC_WIDTH,
+        }).catch(() => {/* non-critical */});
+      } catch (uploadErr) {
+        toast.error('Upload to server failed — template save may not work. ' +
+          (uploadErr.response?.data?.detail || uploadErr.message || ''));
+      }
+    } catch (err) {
+      toast.error(err.message || 'Failed to read PDF');
+      setUploading(false);
+      setLoadingPages(false);
+    }
+  }, [toast]);
+
   // ── Serialize fields for API ───────────────────────────────────────────────
   const serializeFields = useCallback(() => {
     return fields.map((field, index) => {
@@ -416,28 +535,25 @@ export default function FormBuilder() {
     }
     setSaving(true);
     try {
+      // Persist any name change first (non-critical, ignore failure)
+      if (templateName.trim()) {
+        await apiClient.patch(EP.TEMPLATE(templateId), { name: templateName.trim() }).catch(() => {});
+      }
       const serialized = serializeFields();
-      const partyPayload = parties.map((p, i) => ({
-        role_key: p.id,
-        label: p.name,
-        routing_order: i + 1,
-        color: p.color,
-      }));
+      // TemplateSetupSerializer expects: { document, fields, changelog }
+      // Party objects are auto-derived by setup_template_version from field party_keys
       await saveMutation.mutateAsync({
-        name: templateName,
         document: loadedDocIdRef.current,
-        parties: partyPayload,
-        form_schema: {
-          source: 'form-builder',
-          page_count: pageImages.length || 1,
-          document_width: DOC_WIDTH,
-          fields: serialized,
-        },
+        fields: serialized,
+        changelog: 'Updated via Form Builder',
       });
+      // saveMutation.onSuccess handles toast.success and navigate
+    } catch {
+      // saveMutation.onError already showed an error toast
     } finally {
       setSaving(false);
     }
-  }, [fields, parties, templateName, pageImages, serializeFields, saveMutation, toast]);
+  }, [fields, templateName, pageImages, serializeFields, saveMutation, templateId, toast]);
 
   // ── Render ────────────────────────────────────────────────────────────────
   const selectedField = selectedFieldIdx !== null ? fields[selectedFieldIdx] : null;
@@ -532,7 +648,18 @@ export default function FormBuilder() {
           )}
         </div>
 
-        <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+        <div style={{ display: 'flex', gap: 6, flexShrink: 0, alignItems: 'center' }}>
+          {pageImages.length > 0 && (
+            <button
+              className="btn btn-ghost btn-sm"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploading}
+              title="Replace the current document with a new PDF"
+              style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}
+            >
+              ⬆ Replace PDF
+            </button>
+          )}
           <button
             className="btn btn-primary btn-sm"
             onClick={handleSave}
@@ -542,6 +669,19 @@ export default function FormBuilder() {
           </button>
         </div>
       </div>
+
+      {/* Hidden file input — always mounted so both the upload zone and "Replace PDF" button can trigger it */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="application/pdf"
+        style={{ display: 'none' }}
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) handleUploadPdf(file);
+          e.target.value = '';
+        }}
+      />
 
       {/* ── 3-column layout ── */}
       <div style={{ display: 'grid', gridTemplateColumns: '210px 1fr 270px', flex: 1, overflow: 'hidden' }}>
@@ -665,58 +805,111 @@ export default function FormBuilder() {
         >
           {loadingPages && <Spinner center />}
 
-          {!loadingPages && pageImages.length === 0 && (
+          {!loadingPages && !uploading && pageImages.length === 0 && (
             <div
+              onDragOver={(e) => { e.preventDefault(); setDropActive(true); }}
+              onDragLeave={() => setDropActive(false)}
+              onDrop={(e) => {
+                e.preventDefault();
+                setDropActive(false);
+                const file = e.dataTransfer.files?.[0];
+                if (file) handleUploadPdf(file);
+              }}
               style={{
                 width: DOC_WIDTH,
-                minHeight: 480,
-                background: 'white',
-                borderRadius: 4,
+                minHeight: 520,
+                background: dropActive ? 'rgba(37,99,235,0.04)' : 'white',
+                borderRadius: 8,
                 boxShadow: '0 4px 24px rgba(0,0,0,0.12)',
                 display: 'flex',
                 flexDirection: 'column',
                 alignItems: 'center',
                 justifyContent: 'center',
-                gap: '1rem',
-                border: '2px dashed var(--border)',
+                gap: '1.25rem',
+                border: dropActive ? '2px dashed #2563eb' : '2px dashed #cbd5e1',
+                transition: 'border-color 0.15s, background 0.15s',
+                padding: '2.5rem 2rem',
+                cursor: 'default',
               }}
             >
-              <div style={{ fontSize: '2.5rem' }}>📄</div>
+              {/* Icon */}
+              <div style={{
+                width: 72,
+                height: 72,
+                borderRadius: '50%',
+                background: '#eff6ff',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: '2rem',
+              }}>
+                📄
+              </div>
+
+              {/* Heading */}
               <div style={{ textAlign: 'center' }}>
-                <div style={{ fontWeight: 700, fontSize: '1rem', color: 'var(--text-primary)', marginBottom: 4 }}>
-                  No document loaded
+                <div style={{ fontWeight: 700, fontSize: '1.0625rem', color: 'var(--text-primary)', marginBottom: 6 }}>
+                  Upload a PDF to get started
                 </div>
-                <div style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', maxWidth: 380 }}>
-                  This template has no document associated yet. Upload a PDF in the Documents library, then come back and it will appear here as the canvas background.
-                </div>
-                <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem' }}>
-                  <button
-                    className="btn btn-primary btn-sm"
-                    onClick={() => navigate('/documents')}
-                    style={{ fontSize: '0.8125rem' }}
-                  >
-                    Go to Documents →
-                  </button>
-                  <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', alignSelf: 'center' }}>
-                    or place fields on the blank canvas below
-                  </span>
+                <div style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', maxWidth: 360, lineHeight: 1.5 }}>
+                  Drop a PDF here, or click the button below. The document will appear as the canvas background
+                  so you can drag and drop fields exactly where they need to go.
                 </div>
               </div>
-              {/* Blank canvas page so fields can still be placed */}
-              <BlankPage
-                width={DOC_WIDTH}
-                height={1471}
-                pageIndex={0}
-                fields={fields}
-                parties={parties}
-                selectedFieldIdx={selectedFieldIdx}
-                activeTool={activeTool}
-                pageRefs={pageRefs}
-                onPageClick={handlePageClick}
-                onSelectField={selectField}
-                onDeleteField={deleteField}
-                onStartDrag={startDragField}
-              />
+
+              {/* Primary action */}
+              <button
+                className="btn btn-primary"
+                onClick={(e) => { e.stopPropagation(); fileInputRef.current?.click(); }}
+                style={{ fontSize: '0.875rem', padding: '0.5rem 1.5rem', gap: 8, display: 'flex', alignItems: 'center' }}
+              >
+                <span style={{ fontSize: '1rem' }}>⬆</span>
+                Choose PDF file
+              </button>
+
+              {/* Divider + secondary */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, width: '100%', maxWidth: 360 }}>
+                <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>or</span>
+                <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
+              </div>
+
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'center' }}>
+                <button
+                  className="btn btn-ghost btn-sm"
+                  onClick={(e) => { e.stopPropagation(); navigate('/documents'); }}
+                  style={{ fontSize: '0.8rem' }}
+                >
+                  Browse Documents library
+                </button>
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', alignSelf: 'center' }}>
+                  to reuse an existing file
+                </span>
+              </div>
+
+              <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: 4 }}>
+                PDF files only · Max 50 MB
+              </div>
+            </div>
+          )}
+
+          {uploading && (
+            <div style={{
+              width: DOC_WIDTH,
+              minHeight: 520,
+              background: 'white',
+              borderRadius: 8,
+              boxShadow: '0 4px 24px rgba(0,0,0,0.12)',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '1rem',
+            }}>
+              <Spinner center />
+              <div style={{ fontSize: '0.875rem', color: 'var(--text-muted)', fontWeight: 500 }}>
+                Uploading and rendering pages…
+              </div>
             </div>
           )}
 

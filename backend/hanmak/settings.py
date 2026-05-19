@@ -53,6 +53,7 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'corsheaders',
+    'storages',
     'rest_framework',
     'django_filters',
     'drf_spectacular',
@@ -153,8 +154,37 @@ USE_TZ = True
 STATIC_URL = 'static/'
 STATIC_ROOT = env('STATIC_ROOT', default=str(BASE_DIR / 'staticfiles'))
 
-MEDIA_URL = 'media/'
 MEDIA_ROOT = BASE_DIR / 'media'
+
+# ── Storage: MinIO / S3 when credentials are provided, local filesystem otherwise
+_S3_ENDPOINT = env('AWS_S3_ENDPOINT_URL', default='')
+_S3_KEY      = env('AWS_ACCESS_KEY_ID', default='')
+
+if _S3_ENDPOINT and _S3_KEY:
+    STORAGES = {
+        'default': {'BACKEND': 'storages.backends.s3boto3.S3Boto3Storage'},
+        'staticfiles': {'BACKEND': 'django.contrib.staticfiles.storage.StaticFilesStorage'},
+    }
+    AWS_ACCESS_KEY_ID       = _S3_KEY
+    AWS_SECRET_ACCESS_KEY   = env('AWS_SECRET_ACCESS_KEY', default='')
+    AWS_STORAGE_BUCKET_NAME = env('AWS_STORAGE_BUCKET_NAME', default='hanmak')
+    AWS_S3_ENDPOINT_URL     = _S3_ENDPOINT
+    # External URL used by the browser to download files.
+    # For local dev this is the host-accessible MinIO port (e.g. http://localhost:9002).
+    AWS_S3_CUSTOM_DOMAIN    = env('AWS_S3_CUSTOM_DOMAIN', default='')
+    AWS_S3_URL_PROTOCOL     = env('AWS_S3_URL_PROTOCOL', default='http:')
+    AWS_QUERYSTRING_AUTH    = env.bool('AWS_QUERYSTRING_AUTH', default=False)
+    AWS_S3_FILE_OVERWRITE   = False
+    AWS_DEFAULT_ACL         = 'public-read'
+    AWS_S3_OBJECT_PARAMETERS = {'CacheControl': 'max-age=86400'}
+    # MEDIA_URL is informational only when using S3 — FileField.url() builds
+    # the real URL from AWS_S3_CUSTOM_DOMAIN automatically.
+    if AWS_S3_CUSTOM_DOMAIN:
+        MEDIA_URL = f'{AWS_S3_URL_PROTOCOL}//{AWS_S3_CUSTOM_DOMAIN}/'
+    else:
+        MEDIA_URL = f'{_S3_ENDPOINT}/{AWS_STORAGE_BUCKET_NAME}/'
+else:
+    MEDIA_URL = 'media/'
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 

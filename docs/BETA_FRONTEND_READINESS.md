@@ -54,7 +54,7 @@ Before inviting testers:
 - Confirm every tester has an account or invite/setup token.
 - Upload real PDF documents and build templates from those documents.
 - Create envelopes only from real templates or File Library documents.
-- Run the public signing flow on desktop and mobile widths.
+- Run the public signing flow on desktop and mobile widths. Verify real PDF page content is visible (not white pages) — Poppler rendering active as of 2026-05-20.
 - Generate and download signed PDFs from completed envelopes. Verify that select/text/signature fields appear at their expected visual positions (field placement fix applied 2026-05-18: overlay canvas now uses source PDF mediabox dimensions so fields no longer drift to top-right on A4 sources).
 - Click every visible action in the enabled modules.
 
@@ -66,14 +66,20 @@ The frontend scan still shows these intentional development surfaces:
 - Test Lab creates synthetic documents for automated end-to-end checks. Keep Test Lab internal during beta unless testers are explicitly validating QA tooling.
 - Most high-traffic export actions now download real files, including envelope CSV export. Any remaining clipboard-only exports should be treated as internal utilities and converted before external production use.
 - SDK snippets and API docs are live enough for beta, but the in-browser authenticated API request runner remains deferred.
+- PDF rendering is now real (`pdf2image` + Pillow via Poppler); all uploaded PDFs produce actual page images stored in MinIO.
 
 ## React Production Frontend Status
 
-The React production frontend (`react-frontend/`) reached **full implementation** on 2026-05-18. All 44 pages are live-wired to the Django/DRF backend. Current state:
+The React production frontend (`react-frontend/`) reached **full implementation** on 2026-05-18 with subsequent integration rounds on 2026-05-20. All 44 pages are live-wired to the Django/DRF backend. Current state:
 
-- **Done:** Full route map, Axios + JWT client, TanStack Query wrappers, authStore (Zustand), AppShell + Sidebar + Topbar, SettingsLayout with nested routes, Toast context, all 44 pages fully implemented (~22,000 lines).
-- **Done:** All critical bugs fixed — auth endpoints corrected, blob download pattern for authenticated files, organization FK included on all creates, ToastContext extended with `success`/`error`/`warning`/`info` shortcuts, EvidenceBundle create flow rewritten to envelope-picker model.
-- **In progress:** Feature parity polish — ~24 UI elements present in the vanilla JS prototype but not yet in the React frontend (see `docs/REACT_FRONTEND_ARCHITECTURE.md` for the full gap list).
+- **Done:** Full route map, Axios + JWT client, TanStack Query wrappers, authStore (Zustand), AppShell + Sidebar + Topbar, SettingsLayout with nested routes, Toast context, all 44 pages fully implemented.
+- **Done:** All critical bugs fixed — auth endpoints corrected, blob download for authenticated files, organization FK on all creates, ToastContext shortcuts, EvidenceBundle create flow, signing submit/decline URL and payload, FormBuilder page loading, PublicSigning pages path.
+- **Done (2026-05-20):** Template and Envelope creation modals fully match the mock — async multi-step flows, party/role assignment, document attachment, "Save Draft" and "Create & Send" actions.
+- **Done (2026-05-20):** UI/UX modernized — DM Sans font, card shadows, button animations, modal backdrop blur, toast accent bars.
+- **Done (2026-05-20):** MinIO as default file storage — all uploaded documents and rendered page PNGs stored in MinIO. Nginx `/files/` proxy serves them same-origin (no CORS). `minio_init` Docker service creates bucket automatically.
+- **Done (2026-05-20):** FormBuilder PDF preview — `pdfjs-dist` renders PDF pages client-side immediately on upload (canvas data URLs). No dependency on backend renderer for the canvas preview. Backend `pdf2image` renders server-side images in parallel for the signing view.
+- **Done (2026-05-20):** Template preview — cards show first-page thumbnail (`preview_image_url` from backend serializer). Preview modal auto-generates pages via `prepare-for-builder` when none exist yet.
+- **Remaining:** Feature parity polish — some UI elements from the vanilla JS prototype not yet ported (see `docs/REACT_FRONTEND_ARCHITECTURE.md` for current gap list).
 
 The React frontend is accessible at `http://127.0.0.1:8080/` (served by Nginx from the Vite dev server in Docker) or `http://localhost:5173/` directly from the Vite HMR server.
 

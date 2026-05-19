@@ -169,9 +169,42 @@ This backend has been expanded using `Documentation/Initial Development Plan/bas
 - Current backend verification checkpoint is green: `manage.py check`, `makemigrations --check --dry-run`, and `accounts.tests.TenantScopedAPITests` (`91 tests OK`).
 - Signed PDF field-placement bug diagnosed and fixed across three layers: (1) `evidence/pdf.py` `build_stamped_source_pdf()` now always derives the overlay canvas dimensions from `source_page.mediabox` instead of `DocumentPage.width/height`, so a 595×842 pt A4 source no longer gets a 1040×1471 overlay stamped verbatim into it; (2) `form-builder.js` `fbSaveTemplateDocument()` now calls `/documents/{id}/render_pages/` immediately after `/documents/{id}/process/` so page-preview images exist and `build_image_overlay_pdf()` is used as the primary rendering path; (3) `live-wiring.js` `signerFieldGeometry()` and `signerPageHeight()` now scale the stored `page_height` by the same `HANMAK_CANONICAL_PAGE_WIDTH / page_width` ratio used for X/Y coordinates so field top-clamping uses the rendered height, not the raw stored height.
 
+## 2026-05-20 React Frontend — Integration Fixes and Feature Completion
+
+- EP constants audit completed: 10 missing/incorrect constants added to `react-frontend/src/api/endpoints.js` — `MFA_TOTP_BEGIN`, `MFA_TOTP_CONFIRM`, `MFA_PASSKEY_BEGIN_REG`, `MFA_PASSKEY_FINISH_REG`, `TASK_RUN_SUMMARY`, `EMAIL_MESSAGES`, `EMAIL_TEMPLATES`, `ENVELOPE_BULK`, `ENVELOPE_SUMMARY`, `ENVELOPE_CREATE_FROM_TEMPLATE`. `Profile.jsx` and `BackgroundTasks.jsx` updated to use constants instead of hardcoded URL strings.
+- Public signing submit/decline URL and payload bug fixed: `EP.SIGN_SUBMIT` and `EP.SIGN_DECLINE` corrected from non-existent `/sign/{token}/submit/` and `/sign/{token}/decline/` to `/sign/{token}/` (the backend `PublicSigningSessionView` POST dispatches on `action: 'decline'` in the payload). Submit payload now sends `field_values` as `[{field_key, value}]` array (mapped from id-keyed state via session `fields` array) and `signature` with `{signature_type, typed_name, metadata}` matching the backend `Signature` model.
+- Template/Envelope creation parity implemented: both `TemplateList.jsx` and `EnvelopeList.jsx` creation modals rewritten with async handlers matching the mock pattern — `EP.ENVELOPE_CREATE_FROM_TEMPLATE` when a versioned template is selected (single call, backend handles field/document copying), direct `EP.ENVELOPES` + optional `EP.ENVELOPE_DOCUMENTS` attach + optional `EP.ENVELOPE_SEND` for scratch creation. Per-recipient `{name, email, role, party_key, routing_order}` structure sent. "Save Draft" and "Create & Send" footer actions.
+- UI/UX modernization: `react-frontend/src/styles/index.css` rewritten from 288 to 545 lines — DM Sans font applied to `body`, sidebar gradient logo text + left active bar, card `box-shadow` + hover lift on stat cards, button transforms + `focus-visible` rings, form input focus ring, toast left-accent bars, modal backdrop `blur(4px)` + `slideUp` animation, drawer `slideInRight` animation, custom 5 px scrollbars, sticky table headers with 2 px border. Critical bug fixed: `.card-title` and `.card-header` were referenced in `Dashboard.jsx` and `WorkflowBuilder.jsx` but had no CSS definition — both classes now defined.
+- FormBuilder page loading chain fixed: `prepare-for-builder` response includes `rendered_pages` (freshly generated PNGs); FormBuilder now reads those directly and skips the redundant second `render_pages` call. Fallback `render_pages` path now correctly handles the plain array response (previous code checked `data?.pages` on an array, which is always `undefined`).
+- PublicSigning document pages path fixed: pages are in `session.documents[].document_detail.pages[]` (sorted by `order` then `page_number`). Previous code checked `session?.pages` which does not exist on the `PublicSigningSessionSerializer` response; the signing view always showed "Document preview not available".
+
+## 2026-05-20 Backend — PDF Rendering + MinIO Storage + Template Preview
+
+### Storage: MinIO as default
+- `requirements.txt` — added `django-storages[s3]==1.14.6`, `boto3==1.38.23`, `pdf2image==1.17.0`.
+- `backend/Dockerfile` — installs `poppler-utils` system package so `pdftoppm` is available inside the container.
+- `settings.py` — S3/MinIO storage activated when `AWS_S3_ENDPOINT_URL` + `AWS_ACCESS_KEY_ID` env vars are set: `STORAGES['default'] = S3Boto3Storage`. `AWS_S3_CUSTOM_DOMAIN=localhost:8080/files` routes file downloads through the Nginx `/files/` proxy (same-origin, no CORS needed). Local filesystem storage retained as fallback when credentials absent.
+- `docker-compose.dev.yml` — all three backend services (`backend`, `celery_worker_default`, `celery_beat`) receive MinIO env vars. Added `minio_init` service using `minio/mc:latest` that creates the `hanmak` bucket and sets it public-read before any backend service starts. Backend services wait for `minio_init: service_completed_successfully`.
+- `nginx/dev.conf` — added `/files/` location that proxies to `http://minio:9000/hanmak/`, stripping `Authorization` headers and adding 1-day cache. This makes all media URLs same-origin (`http://localhost:8080/files/...`) so no CORS configuration is required on MinIO.
+- `.env.example` — filled in MinIO defaults: `AWS_ACCESS_KEY_ID=minio`, `AWS_SECRET_ACCESS_KEY=minio-password`, `AWS_STORAGE_BUCKET_NAME=hanmak`, `AWS_S3_ENDPOINT_URL=http://minio:9000`, `AWS_S3_CUSTOM_DOMAIN=localhost:8080/files`.
+
+### PDF rendering: pdf2image + Pillow
+- `backend/documents/rendering.py` rewritten to use `pdf2image.convert_from_bytes()` (Poppler wrapper):
+  - `_get_pdf_bytes(document)` — reads PDF bytes via `document.file.open('rb')`, which works transparently for both local FileSystemStorage and S3/MinIO storage without any temp-file juggling.
+  - `generate_document_page_images()` calls `convert_from_bytes(data, dpi=150)` which returns a list of PIL Images (one per page). Each is resized to `target_width=1040 px` with LANCZOS, saved as PNG via `page.image.save(...)` (uploads directly to MinIO with S3 storage). Falls back to `simple_blank_png()` only when `pdf2image` is unavailable.
+  - `rasterization_capabilities()` updated to report `current_renderer: 'pdf2image+pillow'`.
+- `backend/documents/views.py` `prepare_for_builder` action auto-detects page count via `pypdf.PdfReader` when `document.page_count` is unset — no client-supplied page count needed.
+
+### Template preview image
+- `TemplateSerializer.get_preview_image_url()` added — fetches the first `DocumentPage` (page_number=1) of the latest version's document and returns its `image.url` (MinIO URL via Nginx proxy). Returns `null` when no pages have been generated yet.
+- `TemplateList.jsx` — template cards now show a 148 px tall document thumbnail at the top using `t.preview_image_url`. Clicking the thumbnail opens the preview modal. Cards fall back to a document icon placeholder when no preview exists.
+- `TemplateList.jsx` `openPreview()` — when the document has no rendered pages, automatically calls `prepare-for-builder` to generate them on demand via `pdf2image`. Uses `rendered_pages` from the response directly (no second fetch needed).
+
 ## Next Checkpoint
 
-- Run Docker click-through QA through the Nginx proxy at `http://127.0.0.1:8080/mock/`.
+- Run Docker click-through QA through the Nginx proxy at `http://127.0.0.1:8080/` (React frontend).
+- Upload a real multi-page PDF, verify FormBuilder shows actual PDF content (not white pages), place fields, save template.
+- Create an envelope from the template, open the signing link, verify real document pages render with field overlays.
 - Click every visible create/edit/delete/send/retry/export/release/delegate/test action across Dashboard, Inbox, Envelopes, Templates, Form Builder, File Library, Signing, Workflow, Approvals, Audit, Admin, Settings, Developer, Compliance, Billing, License, and Operations.
 - Record any remaining UI/API mismatches as either a fix, a deliberately disabled action, or a documented deferred production feature.
 
@@ -218,7 +251,7 @@ See `docs/REACT_FRONTEND_ARCHITECTURE.md` for the full implementation roadmap. P
 - Full signer portal frontend beyond the mock/live-wired public signing page.
 - Production OAuth login mapping/account-linking rules, provider certificate rotation, and complete SCIM group lifecycle.
 - Search relevance beyond the current Postgres full-text / weighted-term ranking: stemming dictionaries, synonyms, typo tolerance, and cross-object relevance tuning.
-- Production PDF rasterization with source-accurate page images instead of placeholder PNG canvases, intentionally deferred while the current PNG/canvas preview works.
+- PyMuPDF as an optional rendering upgrade over Poppler for environments without `pdftoppm` (Poppler is now the active renderer; PyMuPDF path can be added as a first-priority branch in `generate_document_page_images()` when `fitz` is importable).
 - Production deployment hardening beyond readiness checks: Gunicorn/ASGI sizing, real TLS/domain rollout, restore drills, secret rotation, and infrastructure runbooks.
 - Production observability beyond optional APM bootstrap: richer database query analysis, hosted status-page publishing, external alert provider delivery, and trace dashboards.
 - Production payment processor integration beyond webhook ingestion: real checkout/portal provider session creation, taxes, receipts, disputes, refunds, and subscription lifecycle edge cases.

@@ -71,7 +71,12 @@ export default function EnvelopeList() {
   const [createModal, setCreateModal] = useState(false);
   const [createName, setCreateName] = useState('');
   const [createTemplateId, setCreateTemplateId] = useState('');
-  const [createRecipients, setCreateRecipients] = useState([{ name: '', email: '' }]);
+  const [createMessage, setCreateMessage] = useState('');
+  const [createDueDate, setCreateDueDate] = useState('');
+  const [createDocMode, setCreateDocMode] = useState('');
+  const [createDocId, setCreateDocId] = useState('');
+  const [createRecipients, setCreateRecipients] = useState([{ name: '', email: '', role: 'signer', party_key: '' }]);
+  const [creatingEnv, setCreatingEnv] = useState(false);
 
   // Void modal
   const [voidModal, setVoidModal] = useState({ open: false, id: null });
@@ -104,11 +109,26 @@ export default function EnvelopeList() {
     { page_size: 50 }
   );
 
+  const { data: documentsData } = useApiQuery(
+    ['documents-picker-env'],
+    EP.DOCUMENTS,
+    { page_size: 50 }
+  );
+
   const envelopes = data?.results ?? [];
   const count = data?.count ?? 0;
   const hasNext = Boolean(data?.next);
   const hasPrev = Boolean(data?.previous);
   const templates = templatesData?.results ?? [];
+  const documents = documentsData?.results ?? [];
+
+  // Derived from selected template in create modal
+  const selectedTemplate = templates.find(t => String(t.id) === String(createTemplateId)) || null;
+  const selectedPartyKeys = selectedTemplate?.party_keys ?? [];
+  const selectedVersionId = (() => {
+    const lv = selectedTemplate?.latest_version || selectedTemplate?.versions?.[0];
+    return typeof lv === 'object' ? lv?.id : lv;
+  })();
 
   // ---- Stats ----
   const stats = summaryData || {};
@@ -167,19 +187,6 @@ export default function EnvelopeList() {
     }
   );
 
-  const createMutation = useApiMutation(
-    (payload) => apiClient.post(EP.ENVELOPES, payload),
-    {
-      invalidateKeys: ['envelopes', 'envelopes-summary'],
-      onSuccess: (res) => {
-        toast.success('Envelope created');
-        setCreateModal(false);
-        resetCreateForm();
-        navigate(`/envelopes/${res.data.id}`);
-      },
-      onError: (e) => toast.error(e.response?.data?.detail || e.message),
-    }
-  );
 
   // ---- Handlers ----
   const handleSearchChange = useCallback((e) => {
@@ -271,26 +278,81 @@ export default function EnvelopeList() {
   const resetCreateForm = () => {
     setCreateName('');
     setCreateTemplateId('');
-    setCreateRecipients([{ name: '', email: '' }]);
+    setCreateMessage('');
+    setCreateDueDate('');
+    setCreateDocMode('');
+    setCreateDocId('');
+    setCreateRecipients([{ name: '', email: '', role: 'signer', party_key: '' }]);
   };
 
-  const handleCreateSubmit = () => {
+  const handleCreateSubmit = async (sendNow = false) => {
     if (!createName.trim()) { toast.error('Envelope name is required'); return; }
     const validRecipients = createRecipients.filter(r => r.name.trim() && r.email.trim());
     if (!validRecipients.length) { toast.error('At least one recipient with name and email is required'); return; }
     const missingEmail = createRecipients.find(r => r.name.trim() && !r.email.trim());
     if (missingEmail) { toast.error(`Email is required for ${missingEmail.name}`); return; }
-    const orgId = localStorage.getItem('HANMAK_ORGANIZATION_ID');
-    const payload = {
-      name: createName.trim(),
-      organization: orgId ? Number(orgId) : undefined,
-      recipients: validRecipients.map((r, i) => ({ name: r.name.trim(), email: r.email.trim(), routing_order: i + 1 })),
-    };
-    if (createTemplateId) payload.template = Number(createTemplateId);
-    createMutation.mutate(payload);
+    const orgId = Number(localStorage.getItem('HANMAK_ORGANIZATION_ID'));
+    setCreatingEnv(true);
+    try {
+      let envRes;
+      if (selectedVersionId) {
+        // Use the optimised create-from-template backend service
+        envRes = await apiClient.post(EP.ENVELOPE_CREATE_FROM_TEMPLATE, {
+          organization: orgId,
+          template_version: selectedVersionId,
+          name: createName.trim(),
+          message: createMessage.trim() || undefined,
+          due_date: createDueDate || undefined,
+          send: sendNow,
+          recipients: validRecipients.map((r, i) => ({
+            name: r.name.trim(),
+            email: r.email.trim(),
+            role: r.role || 'signer',
+            routing_order: i + 1,
+            ...(r.party_key ? { party_key: r.party_key } : {}),
+          })),
+        });
+      } else {
+        // Basic create
+        envRes = await apiClient.post(EP.ENVELOPES, {
+          name: createName.trim(),
+          organization: orgId,
+          message: createMessage.trim() || undefined,
+          due_date: createDueDate || undefined,
+          ...(createTemplateId ? { template: Number(createTemplateId) } : {}),
+          recipients: validRecipients.map((r, i) => ({
+            name: r.name.trim(),
+            email: r.email.trim(),
+            role: r.role || 'signer',
+            routing_order: i + 1,
+          })),
+        });
+
+        // Optionally attach an existing document
+        if (createDocMode === 'existing' && createDocId) {
+          await apiClient.post(EP.ENVELOPE_DOCUMENTS, {
+            envelope: envRes.data.id,
+            document: Number(createDocId),
+            order: 1,
+          });
+        }
+
+        if (sendNow) await apiClient.post(EP.ENVELOPE_SEND(envRes.data.id), {});
+      }
+
+      const fieldCount = envRes.data?.fields?.length ?? 0;
+      toast.success(`Envelope ${sendNow ? 'created and sent' : 'draft created'}${fieldCount > 0 ? ` with ${fieldCount} field(s)` : ''}`);
+      setCreateModal(false);
+      resetCreateForm();
+      navigate(`/envelopes/${envRes.data.id}`);
+    } catch (e) {
+      toast.error(e.response?.data?.detail || e.message);
+    } finally {
+      setCreatingEnv(false);
+    }
   };
 
-  const addRecipientRow = () => setCreateRecipients(prev => [...prev, { name: '', email: '' }]);
+  const addRecipientRow = () => setCreateRecipients(prev => [...prev, { name: '', email: '', role: 'signer', party_key: '' }]);
   const updateRecipient = (idx, field, val) => {
     setCreateRecipients(prev => prev.map((r, i) => i === idx ? { ...r, [field]: val } : r));
   };
@@ -656,19 +718,26 @@ export default function EnvelopeList() {
       <Modal
         open={createModal}
         onClose={() => { setCreateModal(false); resetCreateForm(); }}
-        title="Create New Envelope"
+        title="New Envelope"
         size="lg"
         footer={
           <>
-            <button className="btn btn-ghost" onClick={() => { setCreateModal(false); resetCreateForm(); }}>
+            <button className="btn btn-ghost" onClick={() => { setCreateModal(false); resetCreateForm(); }} disabled={creatingEnv}>
               Cancel
             </button>
             <button
-              className="btn btn-primary"
-              onClick={handleCreateSubmit}
-              disabled={createMutation.isPending}
+              className="btn btn-ghost"
+              onClick={() => handleCreateSubmit(false)}
+              disabled={creatingEnv}
             >
-              {createMutation.isPending ? 'Creating…' : 'Create Envelope'}
+              {creatingEnv ? 'Creating…' : 'Save Draft'}
+            </button>
+            <button
+              className="btn btn-primary"
+              onClick={() => handleCreateSubmit(true)}
+              disabled={creatingEnv}
+            >
+              {creatingEnv ? 'Sending…' : 'Create & Send'}
             </button>
           </>
         }
@@ -678,29 +747,137 @@ export default function EnvelopeList() {
             <label className="form-label">Envelope Name *</label>
             <input
               className="form-input"
-              placeholder="e.g. NDA — Acme Corp"
+              placeholder={`New Vendor Agreement — ${new Date().toLocaleDateString()}`}
               value={createName}
               onChange={e => setCreateName(e.target.value)}
+              autoFocus
             />
           </div>
 
-          {templates.length > 0 && (
-            <div className="form-group">
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+            <div className="form-group" style={{ margin: 0 }}>
               <label className="form-label">Template (optional)</label>
-              <select className="form-input" value={createTemplateId} onChange={e => setCreateTemplateId(e.target.value)}>
-                <option value="">No template</option>
-                {templates.map(t => (
-                  <option key={t.id} value={t.id}>{t.name}</option>
-                ))}
+              <select
+                className="form-input"
+                value={createTemplateId}
+                onChange={e => {
+                  setCreateTemplateId(e.target.value);
+                  // Reset party assignments when template changes
+                  setCreateRecipients(prev => prev.map(r => ({ ...r, party_key: '' })));
+                }}
+              >
+                <option value="">No template — start from scratch</option>
+                {templates.map(t => {
+                  const lv = t.latest_version || t.versions?.[0];
+                  const ready = !!lv && (t.field_count ?? 0) > 0;
+                  return (
+                    <option key={t.id} value={t.id}>
+                      {t.name}{!ready ? ' (setup needed)' : ''}
+                    </option>
+                  );
+                })}
               </select>
+            </div>
+            <div className="form-group" style={{ margin: 0 }}>
+              <label className="form-label">Due Date</label>
+              <input
+                className="form-input"
+                type="date"
+                value={createDueDate}
+                onChange={e => setCreateDueDate(e.target.value)}
+              />
+            </div>
+          </div>
+
+          {/* Template readiness badge */}
+          {createTemplateId && (() => {
+            const ready = !!selectedVersionId && (selectedTemplate?.field_count ?? 0) > 0;
+            return (
+              <div style={{
+                padding: '0.625rem 0.875rem',
+                borderRadius: 7,
+                fontSize: '0.8125rem',
+                background: ready ? 'rgba(34,197,94,0.08)' : 'rgba(234,179,8,0.08)',
+                border: `1px solid ${ready ? 'var(--success)' : 'var(--warning)'}`,
+              }}>
+                {ready ? (
+                  <span style={{ color: 'var(--success)' }}>
+                    ✓ Template ready — will use <strong>create-from-template</strong> endpoint
+                    {selectedPartyKeys.length > 0 && ` · ${selectedPartyKeys.length} signing part${selectedPartyKeys.length !== 1 ? 'ies' : 'y'}`}
+                  </span>
+                ) : (
+                  <span style={{ color: 'var(--warning)' }}>
+                    ⚠ Template has no published version yet — envelope will be created without pre-set fields
+                  </span>
+                )}
+              </div>
+            );
+          })()}
+
+          <div className="form-group">
+            <label className="form-label">Message to Recipients</label>
+            <textarea
+              className="form-input"
+              rows={2}
+              placeholder="Please review and sign this document at your earliest convenience."
+              value={createMessage}
+              onChange={e => setCreateMessage(e.target.value)}
+            />
+          </div>
+
+          {/* Document attachment (only when no template version — create-from-template handles this automatically) */}
+          {!selectedVersionId && documents.length > 0 && (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+              <div className="form-group" style={{ margin: 0 }}>
+                <label className="form-label">Attach Document</label>
+                <select className="form-input" value={createDocMode} onChange={e => { setCreateDocMode(e.target.value); setCreateDocId(''); }}>
+                  <option value="">No document yet</option>
+                  <option value="existing">Use existing document</option>
+                </select>
+              </div>
+              {createDocMode === 'existing' && (
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label className="form-label">Select Document</label>
+                  <select className="form-input" value={createDocId} onChange={e => setCreateDocId(e.target.value)}>
+                    <option value="">— pick one —</option>
+                    {documents.map(doc => (
+                      <option key={doc.id} value={doc.id}>
+                        {doc.title || doc.name || doc.original_filename || `Document #${doc.id}`}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
             </div>
           )}
 
+          {/* Recipients */}
           <div>
             <div style={{ fontWeight: 700, marginBottom: '0.5rem' }}>Recipients *</div>
             <div className="flex flex-col gap-2">
+              {/* Column headers */}
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: selectedPartyKeys.length > 0 ? '1fr 1fr 110px 130px auto' : '1fr 1fr 110px auto',
+                gap: '0.5rem',
+                fontSize: '0.75rem',
+                color: 'var(--text-muted)',
+                paddingBottom: '0.25rem',
+              }}>
+                <span>Full Name</span>
+                <span>Email</span>
+                <span>Role</span>
+                {selectedPartyKeys.length > 0 && <span>Party</span>}
+                <span />
+              </div>
+
               {createRecipients.map((r, idx) => (
-                <div key={idx} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: '0.5rem', alignItems: 'center' }}>
+                <div key={idx} style={{
+                  display: 'grid',
+                  gridTemplateColumns: selectedPartyKeys.length > 0 ? '1fr 1fr 110px 130px auto' : '1fr 1fr 110px auto',
+                  gap: '0.5rem',
+                  alignItems: 'center',
+                }}>
                   <input
                     className="form-input"
                     placeholder="Full name"
@@ -714,7 +891,28 @@ export default function EnvelopeList() {
                     value={r.email}
                     onChange={e => updateRecipient(idx, 'email', e.target.value)}
                   />
-                  {createRecipients.length > 1 && (
+                  <select
+                    className="form-input"
+                    value={r.role}
+                    onChange={e => updateRecipient(idx, 'role', e.target.value)}
+                  >
+                    <option value="signer">Signer</option>
+                    <option value="approver">Approver</option>
+                    <option value="cc">CC</option>
+                  </select>
+                  {selectedPartyKeys.length > 0 && (
+                    <select
+                      className="form-input"
+                      value={r.party_key}
+                      onChange={e => updateRecipient(idx, 'party_key', e.target.value)}
+                    >
+                      <option value="">Unassigned</option>
+                      {selectedPartyKeys.map(pk => (
+                        <option key={pk} value={pk}>{pk}</option>
+                      ))}
+                    </select>
+                  )}
+                  {createRecipients.length > 1 ? (
                     <button
                       className="btn btn-ghost btn-sm"
                       style={{ color: 'var(--danger)' }}
@@ -722,7 +920,7 @@ export default function EnvelopeList() {
                     >
                       ×
                     </button>
-                  )}
+                  ) : <span />}
                 </div>
               ))}
             </div>

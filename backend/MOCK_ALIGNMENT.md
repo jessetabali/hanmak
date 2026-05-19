@@ -66,16 +66,22 @@ Compared against `hanmak_demo_mock_directory` as of 2026-05-14.
 
 ## Current Verification
 
-- 2026-05-18 React frontend scaffold initialized: `react-frontend/` created with Vite 5 + React 18 + React Router v6 + TanStack Query v5 + Zustand. All 40+ pages wired with live `useApiQuery` data fetching. Full feature parity implementation roadmap documented in `docs/REACT_FRONTEND_ARCHITECTURE.md`.
-- 2026-05-18 signed PDF coordinate fix: Three-layer root-cause fix applied for field misplacement in signed PDFs. (1) `evidence/pdf.py` `build_stamped_source_pdf()` now always creates the overlay canvas at the actual source page dimensions from `source_page.mediabox` — the prior bug created a 1040×1471 pt canvas and stamped it verbatim into a 595×842 pt A4 source, placing fields near top-right instead of center. (2) `form-builder.js` now calls `/documents/{id}/render_pages/` immediately after `/documents/{id}/process/` so `DocumentPage.image` is populated and `build_image_overlay_pdf()` becomes the primary rendering path. (3) `live-wiring.js` `signerFieldGeometry()` and `signerPageHeight()` now scale `page_height` by the same `HANMAK_CANONICAL_PAGE_WIDTH / page_width` ratio used for X/Y coordinates so field top-clamping uses the rendered height.
-- 2026-05-16 side-by-side hookup pass: `docs/FRONTEND_BACKEND_HOOKUP_AUDIT.md` now maps visible frontend modules to backend endpoints. The pass also converted remaining report/export actions on Dashboard, Audit, Approvals, Users, Organizations, and Test Lab from clipboard-only CSV/JSON to downloaded files. Remaining copy/toast actions are copy/info/no-file helpers or development placeholders blocked in beta mode.
-- 2026-05-15 frontend live-data verification: Dashboard/profile/sidebar shell hydration, Approval Queue analytics/load, active Test Lab task-run hydration/report/detail/rerun flow, and SSO SAML preset/toggle persistence were checked in code.
-- Nginx/API smoke checks returned `200` for `/api/v1/task-runs/`, `/api/v1/sso-connections/`, `/api/v1/profiles/me/`, `/api/v1/inbox/`, and `/api/v1/analytics/approval-bottlenecks/`.
-- Backend system check passes. Focused verification for the latest signing/billing role pass also passed: signed PDF attachment append and super-admin cross-organization billing/license management.
-- Migration dry-run check reports no model changes.
+- 2026-05-20 React frontend — integration fixes and PDF rendering:
+  - **PDF rendering:** `backend/documents/rendering.py` now uses Poppler (`pdftoppm`) to generate real page PNGs. `prepare-for-builder` auto-detects page count via `pypdf`. Blank canvas is only the fallback.
+  - **Public signing fixed:** `EP.SIGN_SUBMIT` / `EP.SIGN_DECLINE` corrected to `/sign/{token}/`. Submit payload sends `field_values` as `[{field_key, value}]` array; decline sends `action: 'decline'`. Signature uses `{signature_type, typed_name, metadata}`.
+  - **FormBuilder page loading:** `rendered_pages` from `prepare-for-builder` used directly; `render_pages` fallback handles array response.
+  - **PublicSigning pages:** Correctly derived from `session.documents[].document_detail.pages[]`.
+  - **EP constants:** 10 missing constants added; `Profile.jsx` and `BackgroundTasks.jsx` updated.
+  - **Template/Envelope creation:** Full async creation flows with `create-from-template`, party/role assignment, document attachment for scratch envelopes.
+  - **UI/UX:** `index.css` modernized; `.card-title` / `.card-header` CSS bug fixed.
+- 2026-05-18 React frontend scaffold initialized: all 44 pages live-wired with `useApiQuery`.
+- 2026-05-18 signed PDF coordinate fix: three-layer fix in `evidence/pdf.py`, `form-builder.js`, and `live-wiring.js`.
+- 2026-05-16 side-by-side hookup pass: `docs/FRONTEND_BACKEND_HOOKUP_AUDIT.md` mapped; export actions converted to file downloads.
+- 2026-05-15 frontend live-data verification: Dashboard, Approval Queue, Test Lab, SSO SAML checked in code.
+- Nginx/API smoke checks: `200` on `/api/v1/task-runs/`, `/api/v1/sso-connections/`, `/api/v1/profiles/me/`, `/api/v1/inbox/`, `/api/v1/analytics/approval-bottlenecks/`.
+- Backend system check passes. Migration dry-run reports no model changes.
 - Full tenant API test class passes: `accounts.tests.TenantScopedAPITests` (`91 tests OK`).
-- Public invitation setup, envelope send readiness, public signing, payment webhooks, search ranking, deployment readiness, and release-gated admin flows are covered by tests.
-- Next verification step is Docker click-through QA through the Nginx proxy so browser-visible actions are checked against the full stack rather than only the Django test client.
+- Next verification step is Docker click-through QA: upload a real PDF, build a template, create an envelope, sign it end-to-end.
 
 ---
 
@@ -139,5 +145,5 @@ License key details (edition, status, dates) and the Edition Features checklist 
 - **API request runner** — intentionally deferred; Test Lab run/schedule/report/details actions now hydrate from `/task-runs/`, create backend task records, export backend run data, and rerun failed recorded suites
 - **Product roadmap planning system** — visible roadmap feedback is stored through backend app settings; a richer triage board, voting dedupe, and notification delivery remain product-management polish
 - **Advanced search quality** — Postgres full-text ranking is wired when available; stemming dictionaries, typo tolerance, and synonym tuning remain deferred
-- **Production-grade PDF rasterization** — deferred; placeholder PNG renderer is working
+- **Production-grade PDF rasterization** — **implemented 2026-05-20** via Poppler (`pdftoppm`); PyMuPDF is an optional upgrade path
 - **AI document analysis and risk automation** — beyond stored risk findings

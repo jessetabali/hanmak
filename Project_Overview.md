@@ -133,12 +133,19 @@ Detailed guides:
 | `backend/MOCK_ALIGNMENT.md` | Vanilla JS mock-to-backend alignment status (reference for React implementation) |
 | `backend/PLAN_ALIGNMENT.md` | Build-plan and implementation alignment notes |
 
-**Current verification checkpoint:**
+**Current verification checkpoint (2026-05-20):**
 - Backend checks are green: `manage.py check` and `makemigrations --check --dry-run`.
 - Full tenant API suite is green: `accounts.tests.TenantScopedAPITests` (`91 tests OK`).
 - Public invitation accept/inspect, envelope send readiness, signing, payment webhooks, search ranking, deployment readiness, release-gated admin flows, and tenant/RBAC guards are covered in tests.
-- Signed PDF field-placement bug resolved 2026-05-18: three-layer fix across `evidence/pdf.py` (overlay canvas now uses source page mediabox instead of DocumentPage dimensions), `form-builder.js` (calls `render_pages/` after document upload so page images exist for the primary renderer), and `live-wiring.js` (signer field geometry scales `page_height` by the same ratio as X/Y coordinates).
+- Signed PDF field-placement bug resolved 2026-05-18: three-layer fix across `evidence/pdf.py`, `form-builder.js`, and `live-wiring.js`.
 - React frontend fully implemented 2026-05-18: all 44 pages live-wired, all critical integration bugs fixed (auth endpoints, blob download, organization FK, toast shortcuts, evidence bundle create flow).
+- **PDF rendering implemented 2026-05-20:** `backend/documents/rendering.py` now uses Poppler (`pdftoppm`, system version 24.02) to convert each PDF page to a 1040 px-wide PNG. `prepare-for-builder` auto-detects page count from the uploaded PDF via `pypdf`. Blank white canvas is retained as the fallback only when Poppler is unavailable.
+- **Public signing payload fixed 2026-05-20:** `EP.SIGN_SUBMIT` and `EP.SIGN_DECLINE` corrected from `/sign/{token}/submit/` and `/sign/{token}/decline/` to `/sign/{token}/` (the backend uses a single POST for both, dispatching on `action: 'decline'`). Submit payload restructured: `field_values` is now `[{field_key, value}]` (array, keyed by `field_key` not `id`) and signature uses `{signature_type, typed_name, metadata}`.
+- **FormBuilder page loading fixed 2026-05-20:** Uses `rendered_pages` from `prepare-for-builder` response directly, eliminating a redundant `render_pages` call. Fallback path correctly handles the plain array returned by `render_pages`.
+- **PublicSigning document pages fixed 2026-05-20:** Pages now derived from `session.documents[].document_detail.pages[]` sorted by document `order` then `page_number`. The previous path `session?.pages` never existed.
+- **EP constants corrected 2026-05-20:** Added `MFA_TOTP_BEGIN`, `MFA_TOTP_CONFIRM`, `MFA_PASSKEY_BEGIN_REG`, `MFA_PASSKEY_FINISH_REG`, `TASK_RUN_SUMMARY`, `EMAIL_MESSAGES`, `EMAIL_TEMPLATES`, `ENVELOPE_BULK`, `ENVELOPE_SUMMARY`, `ENVELOPE_CREATE_FROM_TEMPLATE` (using correct hyphenated path). `Profile.jsx` and `BackgroundTasks.jsx` updated to use constants instead of hardcoded strings.
+- **Template/Envelope creation parity 2026-05-20:** Both TemplateList and EnvelopeList creation modals use async multi-step flows matching the mock: `create-from-template` when a versioned template is selected, with per-recipient `{party_key, routing_order, role}` and optional existing-document attachment for scratch envelopes.
+- **UI/UX modernized 2026-05-20:** `index.css` rewritten (288 → 545 lines) with DM Sans body font, card shadow + hover lift, button focus rings, modal backdrop blur + slide-up animation, toast left-accent bars, custom scrollbars, sticky table headers. Critical bug fixed: `.card-title` and `.card-header` had no CSS definition despite being referenced in `Dashboard.jsx` and `WorkflowBuilder.jsx`.
 - Next checkpoint is Docker click-through QA through `http://127.0.0.1:8080/` (React frontend) to verify every browser-visible action against the Nginx-proxied stack.
 
 **Partially wired / production polish remaining:**
@@ -151,7 +158,8 @@ Detailed guides:
 **Intentionally deferred / later hardening:**
 - Complete feature-flag enforcement for every backend resource beyond the selected tenant-scoped/APIView coverage already in place.
 - Search relevance beyond current Postgres full-text / weighted fallback: stemming, synonyms, typo tolerance, and ranking tuning.
-- Production PDF rasterization, AI risk analysis, hosted observability/status stack, and real payment-provider session creation.
+- AI risk analysis, hosted observability/status stack, and real payment-provider session creation.
+- PyMuPDF as an optional PDF rendering upgrade over Poppler (for environments without system `pdftoppm`).
 
 ---
 

@@ -104,7 +104,18 @@ class DocumentViewSet(OrganizationScopedQuerySetMixin, viewsets.ModelViewSet):
     def prepare_for_builder(self, request, pk=None):
         document = self.get_object()
         if not document.page_count:
-            document.page_count = int(request.data.get('page_count') or 1)
+            # Try to detect page count directly from the uploaded PDF.
+            if document.file:
+                try:
+                    from pypdf import PdfReader
+                    document.file.seek(0)
+                    reader = PdfReader(document.file)
+                    document.page_count = len(reader.pages)
+                    document.file.seek(0)
+                except Exception:
+                    pass
+            if not document.page_count:
+                document.page_count = int(request.data.get('page_count') or 1)
         document.status = Document.Status.READY
         document.processing_error = ''
         document.processed_at = timezone.now()

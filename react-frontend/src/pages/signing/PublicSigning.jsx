@@ -76,7 +76,24 @@ export default function PublicSigning() {
 
   // ── Signature field ids ────────────────────────────────────────────────────
   const fields = session?.fields || session?.form_fields || [];
-  const pages = session?.pages || session?.document?.pages || [];
+
+  // Pages live at session.documents[].document_detail.pages[] (from EnvelopeDocumentSerializer).
+  // Collect all pages across all documents in attachment order, then page order.
+  const pages = (() => {
+    if (session?.documents?.length) {
+      return session.documents
+        .slice()
+        .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+        .flatMap((d) =>
+          (d.document_detail?.pages ?? [])
+            .slice()
+            .sort((a, b) => a.page_number - b.page_number),
+        );
+    }
+    // Fallback paths for older response shapes
+    return session?.pages ?? session?.document?.pages ?? [];
+  })();
+
   const envelopeName = session?.envelope_subject || session?.envelope_name || 'Document Signing';
   const signerName = session?.signer_name || session?.recipient_name || '';
 
@@ -221,29 +238,33 @@ export default function PublicSigning() {
     if (!allFilled) return;
     setSubmitting(true);
     try {
-      // Serialize field values
-      const serialized = {};
-      Object.entries(fieldValues).forEach(([id, val]) => {
+      // Map id-keyed fieldValues to [{field_key, value}] array the backend expects
+      const fieldValuesArr = Object.entries(fieldValues).map(([idStr, val]) => {
+        const field = fields.find((f) => String(f.id) === String(idStr));
+        let serializedVal;
         if (val && typeof val === 'object' && val.type) {
-          // Signature-type value
-          serialized[id] = val.type === 'typed' ? `[TYPED:${val.name}|${val.font}|${val.color}]` : val.dataUrl || '';
+          serializedVal = val.type === 'typed'
+            ? `[TYPED:${val.name}|${val.font}|${val.color}]`
+            : val.dataUrl || '';
         } else {
-          serialized[id] = val;
+          serializedVal = val ?? '';
         }
+        return { field_key: field?.field_key || idStr, value: serializedVal };
       });
 
+      // Map frontend tab name to backend signature_type enum
+      const SIG_TYPE_MAP = { type: 'typed', draw: 'drawn', upload: 'uploaded' };
+      const sigPayload = signatureData
+        ? {
+            signature_type: SIG_TYPE_MAP[signatureData.type] || 'typed',
+            typed_name: signatureData.type === 'type' ? signatureData.name : (session?.recipient_detail?.name || ''),
+            metadata: signatureData.type !== 'type' ? { dataUrl: signatureData.dataUrl } : {},
+          }
+        : null;
+
       await apiClient.post(EP.SIGN_SUBMIT(token), {
-        field_values: serialized,
-        signature_data: signatureData
-          ? {
-              type: signatureData.type,
-              data: signatureData.type === 'typed'
-                ? signatureData.name
-                : signatureData.dataUrl || '',
-              font: signatureData.font,
-              color: signatureData.color,
-            }
-          : null,
+        field_values: fieldValuesArr,
+        ...(sigPayload ? { signature: sigPayload } : {}),
       });
       setSubmitted(true);
     } catch (err) {
@@ -260,7 +281,7 @@ export default function PublicSigning() {
     if (!declineReason.trim()) return;
     setDeclining(true);
     try {
-      await apiClient.post(EP.SIGN_DECLINE(token), { reason: declineReason });
+      await apiClient.post(EP.SIGN_DECLINE(token), { action: 'decline', reason: declineReason });
       setDeclined(true);
       setDeclineModal(false);
     } catch (err) {

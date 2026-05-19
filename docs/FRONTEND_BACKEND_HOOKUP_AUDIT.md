@@ -1,6 +1,6 @@
 # Frontend / Backend Hookup Audit
 
-Last updated: 2026-05-18
+Last updated: 2026-05-20
 
 This audit compares the visible mock frontend modules with the backend endpoints currently exposed under `/api/v1/`.
 
@@ -58,6 +58,30 @@ The React production frontend (`react-frontend/`) is fully implemented. All 44 p
 | License | Live: license key activation/details/backend feature list, super-admin key generation, and license override. |
 | Roadmap | Live persistence through `app-settings` roadmap records. |
 | Login / Setup | Live: login/refresh, passkey challenge flow, recovery request, setup token and invitation acceptance. |
+
+## 2026-05-20 Fixes Applied
+
+| Issue | File(s) Changed | Fix |
+|---|---|---|
+| `EP.SIGN_SUBMIT` / `EP.SIGN_DECLINE` pointed to non-existent sub-paths | `src/api/endpoints.js`, `PublicSigning.jsx` | Both now resolve to `/sign/{token}/`. Decline sends `action:'decline'`; submit sends `field_values` as `[{field_key,value}]` array and `signature` with `{signature_type,typed_name,metadata}`. |
+| FormBuilder showed blank pages — `render_pages` array response not parsed | `templates/FormBuilder.jsx` | `prepare-for-builder` `rendered_pages` used directly; fallback handles `Array.isArray(data)`. |
+| PublicSigning showed "Document preview not available" — wrong pages path | `signing/PublicSigning.jsx` | Pages now read from `session.documents[].document_detail.pages[]`. |
+| 10 EP constants missing or hardcoded as strings | `src/api/endpoints.js`, `Profile.jsx`, `BackgroundTasks.jsx` | Added `MFA_TOTP_BEGIN/CONFIRM`, `MFA_PASSKEY_BEGIN/FINISH_REG`, `TASK_RUN_SUMMARY`, `EMAIL_MESSAGES/TEMPLATES`, `ENVELOPE_BULK/SUMMARY/CREATE_FROM_TEMPLATE`. |
+| Template/Envelope modals used stub mutations | `TemplateList.jsx`, `EnvelopeList.jsx` | Full async creation matching mock: `create-from-template` + party/role assignment + document attach. |
+| `.card-title` / `.card-header` undefined in CSS | `styles/index.css` | Classes defined with DM Sans font, correct margin/weight. Full CSS modernization applied. |
+| PDF pages were blank white PNGs | `backend/documents/rendering.py`, `views.py` | Poppler (`pdftoppm`) renders real PDF pages at 1040 px width. `pypdf` auto-detects page count. |
+
+## 2026-05-20 Storage + Rendering + Preview Fixes
+
+| Issue | File(s) Changed | Fix |
+|---|---|---|
+| FormBuilder blank pages: `document.file.path` raises `NotImplementedError` for S3 storage | `templates/FormBuilder.jsx` | Client-side PDF.js rendering (`pdfjs-dist`) — browser renders PDF pages directly into canvas data URLs; no backend renderer dependency for the canvas preview. Backend upload runs in parallel to register the document. |
+| Existing document preview in FormBuilder also blank (fetching MinIO URL 403) | `templates/FormBuilder.jsx` | Primary path now fetches `file_url` via `apiClient.get(url, {responseType:'arraybuffer'})` and renders with PDF.js. Nginx `/files/` proxy makes URLs same-origin so fetch succeeds. |
+| MinIO file URLs missing bucket name in path (403) | `settings.py`, `docker-compose.dev.yml`, `.env.example` | `AWS_S3_CUSTOM_DOMAIN` changed to `localhost:8080/files`; Nginx `/files/` location proxies to `minio:9000/hanmak/`. All file URLs are now `http://localhost:8080/files/{key}`. |
+| PDF page images always blank PNG (Poppler couldn't access S3 files) | `backend/documents/rendering.py` | Replaced raw `pdftoppm` subprocess with `pdf2image.convert_from_bytes()`. `_get_pdf_bytes()` reads file via Django's storage API (`file.open('rb')`) which transparently handles both local and S3/MinIO storage. |
+| Template preview modal showed "No page images available" for all templates | `templates/TemplateList.jsx` | `openPreview()` now calls `prepare-for-builder` on demand when no pages exist, using `rendered_pages` from the response. |
+| Template cards showed no document preview | `templates/TemplateList.jsx`, `backend/envelopes/serializers.py` | Added `preview_image_url` to `TemplateSerializer` (first page of latest version's document). Template cards now show a 148 px thumbnail above content; clicking opens the preview modal. |
+| No MinIO bucket on startup | `docker-compose.dev.yml` | Added `minio_init` service (`minio/mc`) that creates the `hanmak` bucket and sets it public-read before backend services start. |
 
 ## Remaining Intentional Non-API Actions
 

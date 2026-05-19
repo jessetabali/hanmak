@@ -210,7 +210,7 @@ class EnvelopeViewSet(OrganizationScopedQuerySetMixin, viewsets.ModelViewSet):
         assert_not_under_active_legal_hold('envelope', instance.id)
         return super().perform_destroy(instance)
 
-    @decorators.action(detail=False, methods=['post'])
+    @decorators.action(detail=False, methods=['post'], url_path='create-from-template')
     def create_from_template(self, request):
         serializer = CreateEnvelopeFromTemplateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)

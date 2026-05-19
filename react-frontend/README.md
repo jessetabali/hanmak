@@ -85,7 +85,7 @@ src/
 │   ├── authStore.js      Zustand — JWT, user, organization state + login/logout
 │   └── uiStore.js        Zustand — sidebar collapsed/mobile state
 ├── styles/
-│   └── index.css         Global CSS — design tokens, layout, shared components
+│   └── index.css         Global CSS — design tokens, layout, shared components (modernized 2026-05-20)
 └── utils/
     └── formatting.js     formatDate, formatBytes, titleCase, initials, escapeHtml
 ```
@@ -151,6 +151,17 @@ Copy `.env.example` to `.env` and set:
 | `VITE_API_BASE_URL` | (empty — uses Vite proxy) | Full API base URL for production builds |
 | `VITE_ALLOW_DEMO_AUTO_LOGIN` | `false` | Auto-login with demo credentials (dev only) |
 | `VITE_SENTRY_DSN` | (empty) | Sentry error tracking DSN |
+
+## Known Integration Notes
+
+| Area | Status | Detail |
+|---|---|---|
+| EP constants | All correct as of 2026-05-20 | `src/api/endpoints.js` is the single source of truth — never hardcode API paths |
+| Public signing | Fixed 2026-05-20 | `SIGN_SUBMIT` and `SIGN_DECLINE` both resolve to `/sign/{token}/`; submit sends `field_values` as `[{field_key,value}]` array; decline sends `{action:'decline', reason}` |
+| FormBuilder pages | Fixed 2026-05-20 | Uses `rendered_pages` from `prepare-for-builder` response; `render_pages` fallback handles plain array |
+| PublicSigning pages | Fixed 2026-05-20 | Pages at `session.documents[].document_detail.pages[]`, not `session.pages` |
+| PDF rendering | Real as of 2026-05-20 | Backend uses Poppler (`pdftoppm`) — pages show actual document content |
+| Envelope/Template create | Full parity 2026-05-20 | Async handlers with `create-from-template`, party/role assignment, "Save Draft" + "Create & Send" |
 
 ## Mapping from Vanilla JS Prototype
 

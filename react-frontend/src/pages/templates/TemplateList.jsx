@@ -41,6 +41,7 @@ export default function TemplateList() {
   const [createDocumentId, setCreateDocumentId] = useState('');
   const [uploadFile, setUploadFile] = useState(null);
   const [uploadDragging, setUploadDragging] = useState(false);
+  const [createCategory, setCreateCategory] = useState('');
   const [creating, setCreating] = useState(false);
   const fileInputRef = useRef(null);
 
@@ -53,7 +54,10 @@ export default function TemplateList() {
   // Create envelope from template
   const [envelopeFromTemplate, setEnvelopeFromTemplate] = useState(null);
   const [envName, setEnvName] = useState('');
-  const [envRecipients, setEnvRecipients] = useState([{ name: '', email: '' }]);
+  const [envMessage, setEnvMessage] = useState('');
+  const [envDueDate, setEnvDueDate] = useState('');
+  const [envRecipients, setEnvRecipients] = useState([{ name: '', email: '', role: 'signer', party_key: '' }]);
+  const [envCreating, setEnvCreating] = useState(false);
 
   // ---- Queries ----
   // Summary: use count from a page_size=1 request
@@ -127,19 +131,6 @@ export default function TemplateList() {
     }
   );
 
-  const createEnvelopeMutation = useApiMutation(
-    (payload) => apiClient.post(EP.ENVELOPES, payload),
-    {
-      invalidateKeys: ['envelopes', 'envelopes-summary'],
-      onSuccess: (res) => {
-        toast.success('Envelope created from template');
-        setEnvelopeFromTemplate(null);
-        resetEnvForm();
-        navigate(`/envelopes/${res.data.id}`);
-      },
-      onError: (e) => toast.error(e.response?.data?.detail || e.message),
-    }
-  );
 
   // ---- Handlers ----
   const handleSearchChange = useCallback((e) => {
@@ -157,13 +148,30 @@ export default function TemplateList() {
   const openPreview = useCallback(async (t) => {
     const version = t.versions?.[0];
     const documentId = version?.document;
-    setPreviewModal({ name: t.name, documentId });
+    setPreviewModal({ name: t.name, documentId, fields: t.fields || [], versions: t.versions || [] });
     setPreviewPages([]);
     if (!documentId) return;
     setPreviewLoading(true);
     try {
-      const { data } = await apiClient.get(EP.DOCUMENT(documentId));
-      setPreviewPages(data.pages?.filter(p => p.image_url) ?? []);
+      // Fetch document — get already-rendered pages if they exist
+      const { data: doc } = await apiClient.get(EP.DOCUMENT(documentId));
+      const existingPages = (doc.pages ?? []).filter(p => p.image_url);
+
+      if (existingPages.length > 0) {
+        setPreviewPages(existingPages);
+        return;
+      }
+
+      // No rendered pages yet — trigger prepare-for-builder to generate them
+      // via pdf2image on the backend; rendered_pages come back in the response.
+      const prepRes = await apiClient.post(EP.DOCUMENT_PREPARE(documentId), {
+        page_count: doc.page_count || 1,
+        width: 1040,
+      });
+      const rendered = prepRes.data?.rendered_pages?.length
+        ? prepRes.data.rendered_pages
+        : prepRes.data?.pages ?? [];
+      setPreviewPages(rendered.filter(p => p.image_url));
     } catch { /* no pages available */ }
     finally { setPreviewLoading(false); }
   }, []);
@@ -171,6 +179,7 @@ export default function TemplateList() {
   const resetCreateForm = () => {
     setCreateName('');
     setCreateDescription('');
+    setCreateCategory('');
     setCreateDocumentId('');
     setUploadFile(null);
     setUploadDragging(false);
@@ -204,6 +213,7 @@ export default function TemplateList() {
         description: createDescription.trim(),
         organization: orgId ? Number(orgId) : undefined,
       };
+      if (createCategory.trim()) payload.category = createCategory.trim();
       if (docId) payload.document = docId;
 
       const res = await apiClient.post(EP.TEMPLATES, payload);
@@ -221,23 +231,67 @@ export default function TemplateList() {
 
   const resetEnvForm = () => {
     setEnvName('');
-    setEnvRecipients([{ name: '', email: '' }]);
+    setEnvMessage('');
+    setEnvDueDate('');
+    setEnvRecipients([{ name: '', email: '', role: 'signer', party_key: '' }]);
   };
 
-  const handleEnvelopeFromTemplateSubmit = () => {
+  const handleEnvelopeFromTemplateSubmit = async (sendNow = false) => {
     if (!envName.trim()) { toast.error('Envelope name is required'); return; }
     const validRecipients = envRecipients.filter(r => r.name.trim() && r.email.trim());
     if (!validRecipients.length) { toast.error('At least one recipient with name and email is required'); return; }
-    const orgId = localStorage.getItem('HANMAK_ORGANIZATION_ID');
-    createEnvelopeMutation.mutate({
-      name: envName.trim(),
-      organization: orgId ? Number(orgId) : undefined,
-      template: envelopeFromTemplate?.id,
-      recipients: validRecipients.map((r, i) => ({ name: r.name.trim(), email: r.email.trim(), routing_order: i + 1 })),
-    });
+    const orgId = Number(localStorage.getItem('HANMAK_ORGANIZATION_ID'));
+    const t = envelopeFromTemplate;
+    const latestVersion = t?.latest_version || t?.versions?.[0];
+    const versionId = typeof latestVersion === 'object' ? latestVersion?.id : latestVersion;
+    setEnvCreating(true);
+    try {
+      let res;
+      if (versionId) {
+        res = await apiClient.post(EP.ENVELOPE_CREATE_FROM_TEMPLATE, {
+          organization: orgId,
+          template_version: versionId,
+          name: envName.trim(),
+          message: envMessage.trim() || undefined,
+          due_date: envDueDate || undefined,
+          send: sendNow,
+          recipients: validRecipients.map((r, i) => ({
+            name: r.name.trim(),
+            email: r.email.trim(),
+            role: r.role || 'signer',
+            routing_order: i + 1,
+            ...(r.party_key ? { party_key: r.party_key } : {}),
+          })),
+        });
+      } else {
+        res = await apiClient.post(EP.ENVELOPES, {
+          name: envName.trim(),
+          organization: orgId,
+          template: t?.id,
+          message: envMessage.trim() || undefined,
+          due_date: envDueDate || undefined,
+          recipients: validRecipients.map((r, i) => ({
+            name: r.name.trim(),
+            email: r.email.trim(),
+            role: r.role || 'signer',
+            routing_order: i + 1,
+          })),
+        });
+        if (sendNow) await apiClient.post(EP.ENVELOPE_SEND(res.data.id), {});
+      }
+      const fieldCount = res.data?.fields?.length ?? 0;
+      toast.success(`Envelope ${sendNow ? 'created and sent' : 'draft created'}${fieldCount > 0 ? ` with ${fieldCount} field(s)` : ''}`);
+      setEnvelopeFromTemplate(null);
+      resetEnvForm();
+      navigate(`/envelopes/${res.data.id}`);
+    } catch (e) {
+      toast.error(e.response?.data?.detail || e.message);
+    } finally {
+      setEnvCreating(false);
+    }
   };
 
-  const addEnvRecipient = () => setEnvRecipients(prev => [...prev, { name: '', email: '' }]);
+  const addEnvRecipient = () => setEnvRecipients(prev => [...prev, { name: '', email: '', role: 'signer', party_key: '' }]);
   const updateEnvRecipient = (idx, field, val) => {
     setEnvRecipients(prev => prev.map((r, i) => i === idx ? { ...r, [field]: val } : r));
   };
@@ -326,7 +380,51 @@ export default function TemplateList() {
               const versionNumber = t.version ?? t.current_version;
 
               return (
-                <div key={t.id} className="card" style={{ padding: '1.25rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+                <div key={t.id} className="card" style={{ padding: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+                  {/* Document thumbnail */}
+                  <div
+                    onClick={() => openPreview(t)}
+                    title="Click to preview"
+                    style={{
+                      width: '100%',
+                      height: 148,
+                      background: '#f1f5f9',
+                      borderBottom: '1px solid var(--border)',
+                      overflow: 'hidden',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      cursor: 'pointer',
+                      flexShrink: 0,
+                      position: 'relative',
+                    }}
+                  >
+                    {t.preview_image_url ? (
+                      <img
+                        src={t.preview_image_url}
+                        alt="Page 1 preview"
+                        style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'top' }}
+                        onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                      />
+                    ) : (
+                      <div style={{ textAlign: 'center', color: 'var(--text-muted)' }}>
+                        <div style={{ fontSize: '2rem', marginBottom: 4 }}>📄</div>
+                        <div style={{ fontSize: '0.7rem' }}>No preview</div>
+                      </div>
+                    )}
+                    {/* Hover overlay */}
+                    <div style={{
+                      position: 'absolute', inset: 0,
+                      background: 'rgba(15,23,42,0)',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      transition: 'background 0.15s',
+                      fontSize: '0.75rem', color: 'white', fontWeight: 600,
+                    }}
+                      className="thumbnail-hover-overlay"
+                    />
+                  </div>
+
+                  <div style={{ padding: '1rem 1.25rem', display: 'flex', flexDirection: 'column', gap: '0.75rem', flex: 1 }}>
                   {/* Header */}
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '0.5rem' }}>
                     <div style={{ flex: 1, minWidth: 0 }}>
@@ -369,8 +467,11 @@ export default function TemplateList() {
                     <button
                       className="btn btn-ghost btn-sm"
                       onClick={() => {
+                        const sevenDays = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
                         setEnvName(`${t.name} — ${new Date().toLocaleDateString()}`);
-                        setEnvRecipients([{ name: '', email: '' }]);
+                        setEnvMessage('Please review and sign this document at your earliest convenience.');
+                        setEnvDueDate(sevenDays);
+                        setEnvRecipients([{ name: '', email: '', role: 'signer', party_key: '' }]);
                         setEnvelopeFromTemplate(t);
                       }}
                       title="Create envelope from this template"
@@ -413,6 +514,7 @@ export default function TemplateList() {
                       Delete
                     </button>
                   </div>
+                  </div>{/* end inner padding wrapper */}
                 </div>
               );
             })}
@@ -472,6 +574,15 @@ export default function TemplateList() {
               rows={2}
               value={createDescription}
               onChange={e => setCreateDescription(e.target.value)}
+            />
+          </div>
+          <div className="form-group">
+            <label className="form-label">Category</label>
+            <input
+              className="form-input"
+              placeholder="e.g. Legal, HR, Sales…"
+              value={createCategory}
+              onChange={e => setCreateCategory(e.target.value)}
             />
           </div>
 
@@ -559,73 +670,182 @@ export default function TemplateList() {
       </Modal>
 
       {/* Create Envelope from Template Modal */}
-      <Modal
-        open={Boolean(envelopeFromTemplate)}
-        onClose={() => { setEnvelopeFromTemplate(null); resetEnvForm(); }}
-        title={`New Envelope — ${envelopeFromTemplate?.name || ''}`}
-        size="lg"
-        footer={
-          <>
-            <button className="btn btn-ghost" onClick={() => { setEnvelopeFromTemplate(null); resetEnvForm(); }}>
-              Cancel
-            </button>
-            <button
-              className="btn btn-primary"
-              onClick={handleEnvelopeFromTemplateSubmit}
-              disabled={createEnvelopeMutation.isPending}
-            >
-              {createEnvelopeMutation.isPending ? 'Creating…' : 'Create Envelope'}
-            </button>
-          </>
-        }
-      >
-        <div className="flex flex-col gap-4">
-          <div className="form-group">
-            <label className="form-label">Envelope Name *</label>
-            <input
-              className="form-input"
-              placeholder="e.g. NDA — Acme Corp"
-              value={envName}
-              onChange={e => setEnvName(e.target.value)}
-            />
-          </div>
+      {(() => {
+        const t = envelopeFromTemplate;
+        const latestVersion = t?.latest_version || t?.versions?.[0];
+        const versionId = typeof latestVersion === 'object' ? latestVersion?.id : latestVersion;
+        const partyKeys = t?.party_keys ?? [];
+        const fieldCount = t?.field_count ?? t?.fields?.length ?? 0;
+        const isReady = !!versionId && fieldCount > 0;
+        const hasParties = partyKeys.length > 0;
 
-          <div>
-            <div style={{ fontWeight: 700, marginBottom: '0.5rem' }}>Recipients *</div>
-            <div className="flex flex-col gap-2">
-              {envRecipients.map((r, idx) => (
-                <div key={idx} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: '0.5rem', alignItems: 'center' }}>
+        return (
+          <Modal
+            open={Boolean(t)}
+            onClose={() => { setEnvelopeFromTemplate(null); resetEnvForm(); }}
+            title={`New Envelope — ${t?.name || ''}`}
+            size="lg"
+            footer={
+              <>
+                <button className="btn btn-ghost" onClick={() => { setEnvelopeFromTemplate(null); resetEnvForm(); }} disabled={envCreating}>
+                  Cancel
+                </button>
+                <button
+                  className="btn btn-ghost"
+                  onClick={() => handleEnvelopeFromTemplateSubmit(false)}
+                  disabled={envCreating}
+                >
+                  {envCreating ? 'Creating…' : 'Save Draft'}
+                </button>
+                <button
+                  className="btn btn-primary"
+                  onClick={() => handleEnvelopeFromTemplateSubmit(true)}
+                  disabled={envCreating}
+                >
+                  {envCreating ? 'Sending…' : 'Create & Send'}
+                </button>
+              </>
+            }
+          >
+            <div className="flex flex-col gap-4">
+              {/* Template readiness indicator */}
+              <div style={{
+                padding: '0.75rem 1rem',
+                borderRadius: 8,
+                fontSize: '0.8125rem',
+                background: isReady ? 'rgba(34,197,94,0.08)' : 'rgba(234,179,8,0.08)',
+                border: `1px solid ${isReady ? 'var(--success)' : 'var(--warning)'}`,
+              }}>
+                {isReady ? (
+                  <span style={{ color: 'var(--success)' }}>
+                    ✓ Template ready — {fieldCount} field{fieldCount !== 1 ? 's' : ''} configured
+                    {partyKeys.length > 0 && `, ${partyKeys.length} signing part${partyKeys.length !== 1 ? 'ies' : 'y'}`}
+                  </span>
+                ) : versionId ? (
+                  <span style={{ color: 'var(--warning)' }}>
+                    ⚠ Template has no fields yet — envelope will be created but recipients won't have anything to sign
+                  </span>
+                ) : (
+                  <span style={{ color: 'var(--warning)' }}>
+                    ⚠ Template has no published version — creating a basic envelope without template fields
+                  </span>
+                )}
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">Envelope Name *</label>
+                <input
+                  className="form-input"
+                  placeholder="e.g. NDA — Acme Corp"
+                  value={envName}
+                  onChange={e => setEnvName(e.target.value)}
+                  autoFocus
+                />
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                <div className="form-group" style={{ margin: 0 }}>
+                  <label className="form-label">Due Date</label>
                   <input
                     className="form-input"
-                    placeholder="Full name"
-                    value={r.name}
-                    onChange={e => updateEnvRecipient(idx, 'name', e.target.value)}
+                    type="date"
+                    value={envDueDate}
+                    onChange={e => setEnvDueDate(e.target.value)}
                   />
-                  <input
-                    className="form-input"
-                    placeholder="Email address"
-                    type="email"
-                    value={r.email}
-                    onChange={e => updateEnvRecipient(idx, 'email', e.target.value)}
-                  />
-                  {envRecipients.length > 1 && (
-                    <button
-                      className="btn btn-ghost btn-sm"
-                      style={{ color: 'var(--danger)' }}
-                      onClick={() => removeEnvRecipient(idx)}
-                    >
-                      ×
-                    </button>
-                  )}
                 </div>
-              ))}
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">Message to Recipients</label>
+                <textarea
+                  className="form-input"
+                  rows={2}
+                  placeholder="Please review and sign this document at your earliest convenience."
+                  value={envMessage}
+                  onChange={e => setEnvMessage(e.target.value)}
+                />
+              </div>
+
+              <div>
+                <div style={{ fontWeight: 700, marginBottom: '0.5rem' }}>Recipients *</div>
+                <div className="flex flex-col gap-2">
+                  {/* Column headers */}
+                  <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: hasParties ? '1fr 1fr 120px 130px auto' : '1fr 1fr 120px auto',
+                    gap: '0.5rem',
+                    fontSize: '0.75rem',
+                    color: 'var(--text-muted)',
+                    paddingBottom: '0.25rem',
+                  }}>
+                    <span>Full Name</span>
+                    <span>Email</span>
+                    <span>Role</span>
+                    {hasParties && <span>Party</span>}
+                    <span />
+                  </div>
+
+                  {envRecipients.map((r, idx) => (
+                    <div key={idx} style={{
+                      display: 'grid',
+                      gridTemplateColumns: hasParties ? '1fr 1fr 120px 130px auto' : '1fr 1fr 120px auto',
+                      gap: '0.5rem',
+                      alignItems: 'center',
+                    }}>
+                      <input
+                        className="form-input"
+                        placeholder="Full name"
+                        value={r.name}
+                        onChange={e => updateEnvRecipient(idx, 'name', e.target.value)}
+                      />
+                      <input
+                        className="form-input"
+                        placeholder="Email address"
+                        type="email"
+                        value={r.email}
+                        onChange={e => updateEnvRecipient(idx, 'email', e.target.value)}
+                      />
+                      <select
+                        className="form-input"
+                        value={r.role}
+                        onChange={e => updateEnvRecipient(idx, 'role', e.target.value)}
+                      >
+                        <option value="signer">Signer</option>
+                        <option value="approver">Approver</option>
+                        <option value="cc">CC</option>
+                      </select>
+                      {hasParties && (
+                        <select
+                          className="form-input"
+                          value={r.party_key}
+                          onChange={e => updateEnvRecipient(idx, 'party_key', e.target.value)}
+                        >
+                          <option value="">Unassigned</option>
+                          {partyKeys.map(pk => (
+                            <option key={pk} value={pk}>{pk}</option>
+                          ))}
+                        </select>
+                      )}
+                      {envRecipients.length > 1 ? (
+                        <button
+                          className="btn btn-ghost btn-sm"
+                          style={{ color: 'var(--danger)' }}
+                          onClick={() => removeEnvRecipient(idx)}
+                        >
+                          ×
+                        </button>
+                      ) : <span />}
+                    </div>
+                  ))}
+                </div>
+                <button className="btn btn-ghost btn-sm" style={{ marginTop: '0.5rem' }} onClick={addEnvRecipient}>
+                  + Add Recipient
+                </button>
+              </div>
             </div>
-            <button className="btn btn-ghost btn-sm" style={{ marginTop: '0.5rem' }} onClick={addEnvRecipient}>
-              + Add Recipient
-            </button>
-          </div>
-        </div>
-      </Modal>
+          </Modal>
+        );
+      })()}
 
       {/* Delete Confirm */}
       <ConfirmDialog
@@ -647,20 +867,63 @@ export default function TemplateList() {
       >
         {previewLoading ? (
           <Spinner center />
-        ) : previewPages.length > 0 ? (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', maxHeight: '70vh', overflowY: 'auto' }}>
-            {previewPages.map((p, i) => (
-              <div key={p.id || i} style={{ textAlign: 'center' }}>
-                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.25rem' }}>Page {p.page_number || i + 1}</div>
-                <img
-                  src={p.image_url}
-                  alt={`Page ${p.page_number || i + 1}`}
-                  style={{ maxWidth: '100%', border: '1px solid var(--border)', borderRadius: 4 }}
-                />
-              </div>
-            ))}
-          </div>
-        ) : (
+        ) : previewPages.length > 0 ? (() => {
+          const PREVIEW_PARTY_COLORS = ['#2563eb', '#dc2626', '#16a34a', '#d97706', '#7c3aed', '#0891b2'];
+          const partyColorMap = (previewModal?.versions?.[0]?.parties || []).reduce(
+            (map, p, idx) => ({ ...map, [p.id]: PREVIEW_PARTY_COLORS[idx % PREVIEW_PARTY_COLORS.length] }),
+            {},
+          );
+          return (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', maxHeight: '70vh', overflowY: 'auto' }}>
+              {previewPages.map((p, i) => {
+                const pageNum = p.page_number || i + 1;
+                const pageW = p.width || 1040;
+                const pageH = p.height || 1471;
+                const pageFields = (previewModal?.fields || []).filter(f => f.page === pageNum);
+                return (
+                  <div key={p.id || i}>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.25rem', textAlign: 'center' }}>Page {pageNum}</div>
+                    <div style={{ position: 'relative' }}>
+                      <img
+                        src={p.image_url}
+                        alt={`Page ${pageNum}`}
+                        style={{ width: '100%', display: 'block', border: '1px solid var(--border)', borderRadius: 4 }}
+                      />
+                      {pageFields.map((field, fi) => {
+                        const color = partyColorMap[field.party] || '#2563eb';
+                        return (
+                          <div
+                            key={fi}
+                            title={`${field.label} (${field.field_type})`}
+                            style={{
+                              position: 'absolute',
+                              left: `${(field.x / pageW) * 100}%`,
+                              top: `${(field.y / pageH) * 100}%`,
+                              width: `${(field.width / pageW) * 100}%`,
+                              height: `${(field.height / pageH) * 100}%`,
+                              border: `2px solid ${color}`,
+                              borderRadius: 3,
+                              backgroundColor: `${color}22`,
+                              boxSizing: 'border-box',
+                              pointerEvents: 'none',
+                              display: 'flex',
+                              alignItems: 'center',
+                              overflow: 'hidden',
+                            }}
+                          >
+                            <span style={{ fontSize: 9, color, padding: '0 2px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', lineHeight: 1 }}>
+                              {field.label}
+                            </span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })() : (
           <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>
             {previewModal?.documentId
               ? 'No page images available for this document.'

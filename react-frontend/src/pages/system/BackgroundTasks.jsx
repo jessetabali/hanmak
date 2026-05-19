@@ -173,7 +173,7 @@ export default function BackgroundTasks() {
 
   const { data: summaryData } = useApiQuery(
     ['task-summary'],
-    '/task-runs/summary/'
+    EP.TASK_RUN_SUMMARY
   );
 
   const { data: runsData, isLoading, refetch } = useApiQuery(
@@ -195,7 +195,7 @@ export default function BackgroundTasks() {
 
   const { data: emailMsgData } = useApiQuery(
     ['email-messages-stats'],
-    EP.EMAIL_MESSAGES ?? '/email-messages/',
+    EP.EMAIL_MESSAGES,
     { page_size: 200, ordering: '-created_at' }
   );
 

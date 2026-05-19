@@ -94,13 +94,14 @@ class TemplateSerializer(serializers.ModelSerializer):
     latest_version = serializers.SerializerMethodField()
     field_count = serializers.SerializerMethodField()
     party_keys = serializers.SerializerMethodField()
+    preview_image_url = serializers.SerializerMethodField()
 
     class Meta:
         model = Template
         fields = [
             'id', 'organization', 'name', 'description', 'category', 'version',
             'status', 'created_by', 'fields', 'versions', 'latest_version',
-            'field_count', 'party_keys', 'created_at', 'updated_at',
+            'field_count', 'party_keys', 'preview_image_url', 'created_at', 'updated_at',
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
 
@@ -125,6 +126,25 @@ class TemplateSerializer(serializers.ModelSerializer):
         if latest:
             return list(latest.parties.order_by('routing_order').values_list('role_key', flat=True))
         return []
+
+    @extend_schema_field(OpenApiTypes.URI)
+    def get_preview_image_url(self, obj):
+        latest = next(iter(obj.versions.all()), None)
+        if not latest or not latest.document_id:
+            return None
+        try:
+            from documents.models import DocumentPage
+            page = DocumentPage.objects.filter(
+                document_id=latest.document_id,
+                page_number=1,
+            ).select_related().first()
+            if page and page.image:
+                request = self.context.get('request')
+                url = page.image.url
+                return request.build_absolute_uri(url) if request else url
+        except Exception:
+            pass
+        return None
 
 
 class EnvelopeSerializer(serializers.ModelSerializer):

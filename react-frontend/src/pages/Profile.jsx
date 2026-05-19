@@ -257,7 +257,7 @@ export default function Profile() {
 
   const handleSetupTotp = useCallback(async () => {
     try {
-      const res = await apiClient.post(`${EP.MFA_DEVICES}totp_setup_begin/`, {});
+      const res = await apiClient.post(EP.MFA_TOTP_BEGIN, {});
       setTotpSetupData(res.data);
       setTotpCode('');
       setTotpModal(true);
@@ -272,7 +272,7 @@ export default function Profile() {
       return;
     }
     try {
-      await apiClient.post(`${EP.MFA_DEVICES}totp_setup_confirm/`, {
+      await apiClient.post(EP.MFA_TOTP_CONFIRM, {
         device_id: totpSetupData.device_id,
         code: totpCode,
       });
@@ -292,7 +292,7 @@ export default function Profile() {
     }
     setPasskeyPending(true);
     try {
-      const begin = await apiClient.post(`${EP.MFA_DEVICES}passkey_begin_registration/`, {});
+      const begin = await apiClient.post(EP.MFA_PASSKEY_BEGIN_REG, {});
       const options = begin.data;
       const pkOptions = { ...options.options.publicKey };
       pkOptions.challenge = b64ToBuffer(pkOptions.challenge);
@@ -303,7 +303,7 @@ export default function Profile() {
       }));
       const credential = await navigator.credentials.create({ publicKey: pkOptions });
       const name = `${navigator.platform || 'Browser'} Passkey`;
-      await apiClient.post(`${EP.MFA_DEVICES}passkey_finish_registration/`, {
+      await apiClient.post(EP.MFA_PASSKEY_FINISH_REG, {
         challenge: options.challenge,
         credential: credToJSON(credential),
         name,

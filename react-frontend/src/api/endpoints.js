@@ -17,6 +17,10 @@ export const EP = {
   SESSION_REVOKE: (id) => `/user-sessions/${id}/revoke/`,
   SESSION_REVOKE_OTHERS: '/user-sessions/revoke_others/',
   MFA_DEVICES: '/mfa-devices/',
+  MFA_TOTP_BEGIN: '/mfa-devices/totp_setup_begin/',
+  MFA_TOTP_CONFIRM: '/mfa-devices/totp_setup_confirm/',
+  MFA_PASSKEY_BEGIN_REG: '/mfa-devices/passkey_begin_registration/',
+  MFA_PASSKEY_FINISH_REG: '/mfa-devices/passkey_finish_registration/',
   ORGANIZATIONS: '/organizations/',
   ORGANIZATION: (id) => `/organizations/${id}/`,
   ORGANIZATION_BRANDING: (id) => `/organizations/${id}/branding/`,
@@ -38,6 +42,7 @@ export const EP = {
   ENVELOPE_DOWNLOAD: (id) => `/envelopes/${id}/download/`,
   ENVELOPE_BULK: '/envelopes/bulk-action/',
   ENVELOPE_SUMMARY: '/envelopes/summary/',
+  ENVELOPE_CREATE_FROM_TEMPLATE: '/envelopes/create-from-template/',
   RECIPIENTS: '/recipients/',
   RECIPIENT: (id) => `/recipients/${id}/`,
   RECIPIENT_REMIND: (id) => `/recipients/${id}/remind/`,
@@ -65,8 +70,8 @@ export const EP = {
   // Signing
   SIGNING_SESSIONS: '/signing-sessions/',
   SIGN: (token) => `/sign/${token}/`,
-  SIGN_SUBMIT: (token) => `/sign/${token}/submit/`,
-  SIGN_DECLINE: (token) => `/sign/${token}/decline/`,
+  SIGN_SUBMIT: (token) => `/sign/${token}/`,
+  SIGN_DECLINE: (token) => `/sign/${token}/`,
 
   // Workflow
   WORKFLOWS: '/workflows/',
@@ -104,6 +109,7 @@ export const EP = {
   STORAGE_SETTINGS: '/storage-settings/',
   SECURITY_SETTINGS: '/security-settings/',
   NOTIFICATION_PREFS: '/notification-preferences/',
+  EMAIL_MESSAGES: '/email-messages/',
   EMAIL_TEMPLATES: '/email-templates/',
   EMAIL_TEMPLATES_TEST: '/email-messages/test_smtp/',
 
@@ -122,6 +128,7 @@ export const EP = {
   INCIDENTS: '/incidents/',
   TASK_DEFINITIONS: '/task-definitions/',
   TASK_RUNS: '/task-runs/',
+  TASK_RUN_SUMMARY: '/task-runs/summary/',
   TASK_RUN: (id) => `/task-runs/${id}/`,
   TASK_RUN_RESTART: (id) => `/task-runs/${id}/restart/`,
   TASK_RUN_CANCEL: (id) => `/task-runs/${id}/cancel/`,
