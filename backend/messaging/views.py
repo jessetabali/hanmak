@@ -2,6 +2,7 @@ from rest_framework import decorators, permissions, response, viewsets
 from rest_framework.decorators import api_view, permission_classes
 from django.conf import settings
 from django.db import models
+from django.db.models import Q
 from django.utils import timezone
 import hashlib
 import hmac
@@ -21,6 +22,40 @@ class EmailMessageViewSet(OrganizationScopedQuerySetMixin, viewsets.ReadOnlyMode
     queryset = EmailMessage.objects.select_related('organization', 'envelope', 'recipient', 'invitation', 'signing_session').all().order_by('-queued_at')
     serializer_class = EmailMessageSerializer
     permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        status_value = (self.request.query_params.get('status') or '').strip().lower()
+        kind = (self.request.query_params.get('kind') or '').strip().lower()
+        search = (self.request.query_params.get('search') or self.request.query_params.get('q') or '').strip()
+        envelope_id = self.request.query_params.get('envelope')
+        recipient_id = self.request.query_params.get('recipient')
+
+        status_aliases = {
+            'pending': EmailMessage.Status.QUEUED,
+            'queued': EmailMessage.Status.QUEUED,
+            'delivered': EmailMessage.Status.SENT,
+            'sent': EmailMessage.Status.SENT,
+            'failed': EmailMessage.Status.FAILED,
+        }
+        if status_value and status_value != 'all':
+            queryset = queryset.filter(status=status_aliases.get(status_value, status_value))
+        if kind and kind != 'all':
+            queryset = queryset.filter(kind=kind)
+        if envelope_id:
+            queryset = queryset.filter(envelope_id=envelope_id)
+        if recipient_id:
+            queryset = queryset.filter(recipient_id=recipient_id)
+        if search:
+            queryset = queryset.filter(
+                Q(to_email__icontains=search)
+                | Q(subject__icontains=search)
+                | Q(body__icontains=search)
+                | Q(html_body__icontains=search)
+                | Q(error_message__icontains=search)
+                | Q(bounce_reason__icontains=search)
+            )
+        return queryset
 
     @decorators.action(detail=True, methods=['post'])
     def deliver(self, request, pk=None):

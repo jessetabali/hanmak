@@ -75,9 +75,9 @@ function AppFormModal({ app, onClose, onSaved }) {
         : apiClient.post(EP.OAUTH_APPS, payload),
     {
       invalidateKeys: ['oauth-apps'],
-      onSuccess: () => {
+      onSuccess: (res) => {
         toast.success(app ? 'OAuth app saved' : 'OAuth app created');
-        onSaved?.();
+        onSaved?.(res.data);
         onClose();
       },
       onError: (e) => toast.error(e.response?.data?.detail || e.message),
@@ -96,12 +96,13 @@ function AppFormModal({ app, onClose, onSaved }) {
       .map((u) => u.trim())
       .filter(Boolean);
     if (!uris.length) return toast.error('At least one redirect URI is required');
+    const organizationId = Number(localStorage.getItem('HANMAK_ORGANIZATION_ID'));
     mutation.mutate({
       name: name.trim(),
-      description,
+      description: description.trim(),
       redirect_uris: uris,
       scopes,
-      ...(!app && { organization: Number(localStorage.getItem('HANMAK_ORGANIZATION_ID')) }),
+      ...(!app && organizationId ? { organization: organizationId } : {}),
     });
   };
 
@@ -206,7 +207,7 @@ export default function OAuthApps() {
   );
 
   const toggleMutation = useApiMutation(
-    ({ id, is_enabled }) => apiClient.patch(EP.OAUTH_APP(id), { is_enabled }),
+    ({ id, is_enabled }) => apiClient.patch(EP.OAUTH_APP(id), { status: is_enabled ? 'active' : 'disabled' }),
     {
       invalidateKeys: ['oauth-apps'],
       onSuccess: (_, vars) =>
@@ -247,9 +248,14 @@ export default function OAuthApps() {
             Manage OAuth 2.0 client applications and their permissions
           </p>
         </div>
-        <button className="btn btn-primary" onClick={() => setCreateModal(true)}>
-          + New OAuth App
-        </button>
+        <div className="flex gap-2">
+          <button className="btn btn-ghost" onClick={() => { refetch(); refetchGrants(); }}>
+            ↺ Refresh
+          </button>
+          <button className="btn btn-primary" onClick={() => setCreateModal(true)}>
+            + New OAuth App
+          </button>
+        </div>
       </div>
 
       {apps.length === 0 ? (
@@ -268,14 +274,21 @@ export default function OAuthApps() {
                 <div
                   style={{
                     display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'flex-start',
+                    flexDirection: 'column',
+                    gap: '0.875rem',
                     marginBottom: '1rem',
                   }}
                 >
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div
-                      style={{ fontWeight: 700, fontSize: '0.9375rem', marginBottom: '4px' }}
+                      style={{
+                        fontWeight: 700,
+                        fontSize: '0.9375rem',
+                        lineHeight: 1.35,
+                        marginBottom: '4px',
+                        overflowWrap: 'anywhere',
+                        wordBreak: 'break-word',
+                      }}
                     >
                       {app.name}
                     </div>
@@ -299,7 +312,7 @@ export default function OAuthApps() {
                       </span>
                     </div>
                   </div>
-                  <div className="flex gap-1" style={{ marginLeft: '0.5rem', flexShrink: 0 }}>
+                  <div className="flex gap-1" style={{ flexWrap: 'wrap' }}>
                     <button
                       className="btn btn-ghost btn-sm"
                       title="Edit"
@@ -333,14 +346,7 @@ export default function OAuthApps() {
                   </div>
                 </div>
 
-                <div
-                  style={{
-                    display: 'grid',
-                    gridTemplateColumns: '1fr 1fr',
-                    gap: '1rem',
-                    marginBottom: '1rem',
-                  }}
-                >
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginBottom: '1rem' }}>
                   <div>
                     <div
                       style={{
@@ -351,8 +357,18 @@ export default function OAuthApps() {
                     >
                       Client ID
                     </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-                      <code className="mono" style={{ fontSize: '0.78rem', wordBreak: 'break-all' }}>
+                    <div style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem' }}>
+                      <code
+                        className="mono"
+                        style={{
+                          flex: 1,
+                          minWidth: 0,
+                          fontSize: '0.78rem',
+                          lineHeight: 1.5,
+                          wordBreak: 'break-all',
+                          whiteSpace: 'normal',
+                        }}
+                      >
                         {app.client_id || '—'}
                       </code>
                       {app.client_id && (
@@ -389,9 +405,9 @@ export default function OAuthApps() {
                             fontSize: '0.72rem',
                             display: 'block',
                             color: 'var(--primary)',
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            whiteSpace: 'nowrap',
+                            lineHeight: 1.5,
+                            wordBreak: 'break-all',
+                            whiteSpace: 'normal',
                           }}
                         >
                           {u}
@@ -520,7 +536,13 @@ export default function OAuthApps() {
 
       {/* Modals */}
       {createModal && (
-        <AppFormModal onClose={() => setCreateModal(false)} onSaved={refetch} />
+        <AppFormModal
+          onClose={() => setCreateModal(false)}
+          onSaved={(createdApp) => {
+            refetch();
+            if (createdApp?.client_secret) setRotatedSecret(createdApp.client_secret);
+          }}
+        />
       )}
 
       {editModal && (

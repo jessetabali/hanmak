@@ -110,6 +110,7 @@ export const EP = {
   SECURITY_SETTINGS: '/security-settings/',
   NOTIFICATION_PREFS: '/notification-preferences/',
   EMAIL_MESSAGES: '/email-messages/',
+  EMAIL_MESSAGES_SUMMARY: '/email-messages/summary/',
   EMAIL_TEMPLATES: '/email-templates/',
   EMAIL_TEMPLATES_TEST: '/email-messages/test_smtp/',
 
@@ -159,7 +160,7 @@ export const EP = {
   API_REQUEST_LOGS: '/api-request-logs/',
   OAUTH_APPS: '/oauth-apps/',
   OAUTH_APP: (id) => `/oauth-apps/${id}/`,
-  OAUTH_APP_ROTATE_SECRET: (id) => `/oauth-apps/${id}/rotate_secret/`,
+  OAUTH_APP_ROTATE_SECRET: (id) => `/oauth-apps/${id}/rotate-secret/`,
   OAUTH_GRANTS: '/oauth-grants/',
   OAUTH_GRANT: (id) => `/oauth-grants/${id}/`,
   OAUTH_GRANT_REVOKE: (id) => `/oauth-grants/${id}/revoke/`,

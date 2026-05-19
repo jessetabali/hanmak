@@ -61,7 +61,7 @@ export default function Documents() {
   const [drawerPagesLoading, setDrawerPagesLoading] = useState(false);
 
   // Data
-  const { data: summaryData } = useApiQuery(['docs-summary'], EP.DOCUMENTS + 'summary/');
+  const { data: summaryData, refetch: refetchSummary } = useApiQuery(['docs-summary'], EP.DOCUMENTS + 'summary/');
   const { data, isLoading, refetch } = useApiQuery(
     ['documents', liveSearch, sort, page],
     EP.DOCUMENTS,
@@ -73,6 +73,11 @@ export default function Documents() {
   const hasNext = !!data?.next;
   const hasPrev = !!data?.previous;
   const summary = summaryData ?? {};
+
+  const handleRefresh = useCallback(() => {
+    refetch();
+    refetchSummary();
+  }, [refetch, refetchSummary]);
 
   // Mutations
   const uploadMutation = useApiMutation(
@@ -95,7 +100,7 @@ export default function Documents() {
         setUploadModal(false);
         setUploadFile(null);
         setUploadTitle('');
-        refetch();
+        handleRefresh();
       },
       onError: (e) => toast.error(e.response?.data?.detail || e.message),
     }
@@ -105,7 +110,7 @@ export default function Documents() {
     (id) => apiClient.post(EP.DOCUMENT_PROCESS(id), {}),
     {
       invalidateKeys: ['documents'],
-      onSuccess: () => { toast.success('Document processing started'); refetch(); },
+      onSuccess: () => { toast.success('Document processing started'); handleRefresh(); },
       onError: (e) => toast.error(e.response?.data?.detail || e.message),
     }
   );
@@ -114,7 +119,7 @@ export default function Documents() {
     ({ id, title }) => apiClient.post(EP.DOCUMENT_DUPLICATE(id), { title }),
     {
       invalidateKeys: ['documents', 'docs-summary'],
-      onSuccess: () => { toast.success('Document duplicated'); refetch(); },
+      onSuccess: () => { toast.success('Document duplicated'); handleRefresh(); },
       onError: (e) => toast.error(e.response?.data?.detail || e.message),
     }
   );
@@ -139,7 +144,7 @@ export default function Documents() {
         toast.success('Document deleted');
         setConfirmDelete(null);
         setSelectedDoc(null);
-        refetch();
+        handleRefresh();
       },
       onError: (e) => toast.error(e.response?.data?.detail || e.message),
     }
@@ -209,7 +214,7 @@ export default function Documents() {
           <p className="page-subtitle">Signed documents, attachments, and generated files</p>
         </div>
         <div className="flex gap-2">
-          <button className="btn btn-ghost" onClick={() => refetch()}>Refresh</button>
+          <button className="btn btn-ghost" onClick={handleRefresh}>Refresh</button>
           <button className="btn btn-primary" onClick={openUploadModal}>Upload Document</button>
         </div>
       </div>

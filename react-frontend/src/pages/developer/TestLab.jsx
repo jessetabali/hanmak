@@ -311,13 +311,18 @@ export default function TestLab() {
     { page_size: 25, ordering: '-created_at' }
   );
 
-  const { data: defsData, isLoading: defsLoading } = useApiQuery(
+  const { data: defsData, isLoading: defsLoading, refetch: refetchDefinitions } = useApiQuery(
     ['task-definitions'],
     EP.TASK_DEFINITIONS
   );
 
   const runs = runsData?.results ?? runsData ?? [];
   const definitions = defsData?.results ?? defsData ?? [];
+
+  const handleRefresh = useCallback(() => {
+    refetchRuns();
+    refetchDefinitions();
+  }, [refetchRuns, refetchDefinitions]);
 
   const restartMutation = useApiMutation(
     (id) => apiClient.post(EP.TASK_RUN_RESTART(id)),
@@ -362,7 +367,7 @@ export default function TestLab() {
           <p className="page-subtitle">Queue, monitor, and manage background task runs</p>
         </div>
         <div className="flex gap-2">
-          <button className="btn btn-ghost" onClick={refetchRuns}>↺ Refresh</button>
+          <button className="btn btn-ghost" onClick={handleRefresh}>↺ Refresh</button>
           <button
             className="btn btn-primary"
             onClick={() => runNowMutation.mutate({ task_name: 'test_lab.smoke_test', queue_name: 'default', status: 'queued', payload: { source: 'test_lab' } })}

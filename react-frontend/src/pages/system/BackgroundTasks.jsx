@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { useApiQuery, useApiMutation } from '../../hooks/useApi';
 import { apiClient } from '../../api/client';
 import { EP } from '../../api/endpoints';
@@ -171,12 +171,12 @@ export default function BackgroundTasks() {
   const [confirmPurge, setConfirmPurge] = useState(false);
   const [selectedRun, setSelectedRun] = useState(null);
 
-  const { data: summaryData } = useApiQuery(
+  const { data: summaryData, refetch: refetchSummary } = useApiQuery(
     ['task-summary'],
     EP.TASK_RUN_SUMMARY
   );
 
-  const { data: runsData, isLoading, refetch } = useApiQuery(
+  const { data: runsData, isLoading, refetch: refetchRuns } = useApiQuery(
     ['task-runs', activeTab, page],
     EP.TASK_RUNS,
     {
@@ -186,14 +186,14 @@ export default function BackgroundTasks() {
     }
   );
 
-  const { data: healthData } = useApiQuery(
+  const { data: healthData, refetch: refetchHealth } = useApiQuery(
     ['health-summary'],
     EP.HEALTH_SUMMARY,
     {},
     { refetchInterval: 30000 }
   );
 
-  const { data: emailMsgData } = useApiQuery(
+  const { data: emailMsgData, refetch: refetchEmailMessages } = useApiQuery(
     ['email-messages-stats'],
     EP.EMAIL_MESSAGES,
     { page_size: 200, ordering: '-created_at' }
@@ -219,11 +219,18 @@ export default function BackgroundTasks() {
   const hasPrev = !!runsData?.previous;
   const summary = summaryData || {};
 
+  const handleRefresh = useCallback(() => {
+    refetchRuns();
+    refetchSummary();
+    refetchHealth();
+    refetchEmailMessages();
+  }, [refetchRuns, refetchSummary, refetchHealth, refetchEmailMessages]);
+
   const restartMutation = useApiMutation(
     (id) => apiClient.post(EP.TASK_RUN_RESTART(id)),
     {
       invalidateKeys: ['task-runs', 'task-summary'],
-      onSuccess: () => { toast.success('Task requeued for restart'); refetch(); },
+      onSuccess: () => { toast.success('Task requeued for restart'); handleRefresh(); },
       onError: (e) => toast.error(e.response?.data?.detail || e.message),
     }
   );
@@ -232,7 +239,7 @@ export default function BackgroundTasks() {
     (id) => apiClient.post(EP.TASK_RUN_CANCEL(id)),
     {
       invalidateKeys: ['task-runs', 'task-summary'],
-      onSuccess: () => { toast.success('Task cancelled'); refetch(); },
+      onSuccess: () => { toast.success('Task cancelled'); handleRefresh(); },
       onError: (e) => toast.error(e.response?.data?.detail || e.message),
     }
   );
@@ -244,7 +251,7 @@ export default function BackgroundTasks() {
       onSuccess: (res) => {
         const count = res.data?.purged_count ?? 0;
         toast.success(`Purged ${count} completed task${count !== 1 ? 's' : ''}`);
-        refetch();
+        handleRefresh();
       },
       onError: (e) => toast.error(e.response?.data?.detail || e.message),
     }
@@ -276,7 +283,7 @@ export default function BackgroundTasks() {
           >
             Purge Completed
           </button>
-          <button className="btn btn-ghost" onClick={refetch}>↺ Refresh</button>
+          <button className="btn btn-ghost" onClick={handleRefresh}>↺ Refresh</button>
         </div>
       </div>
 

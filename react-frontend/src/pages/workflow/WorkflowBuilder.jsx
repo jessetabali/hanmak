@@ -67,17 +67,17 @@ export default function WorkflowBuilder() {
   const { data, isLoading, refetch } = useApiQuery(['workflows'], EP.WORKFLOWS);
   const workflows = data?.results ?? data ?? [];
 
-  const { data: runsData } = useApiQuery(['workflow-runs'], EP.WORKFLOW_RUNS);
+  const { data: runsData, refetch: refetchRuns } = useApiQuery(['workflow-runs'], EP.WORKFLOW_RUNS);
   const allRuns = runsData?.results ?? runsData ?? [];
 
-  const { data: usersData } = useApiQuery(['users'], EP.USERS);
+  const { data: usersData, refetch: refetchUsers } = useApiQuery(['users'], EP.USERS);
   const users = usersData?.results ?? usersData ?? [];
 
-  const { data: teamsData } = useApiQuery(['teams'], EP.TEAMS);
+  const { data: teamsData, refetch: refetchTeams } = useApiQuery(['teams'], EP.TEAMS);
   const teams = teamsData?.results ?? teamsData ?? [];
 
   // Envelopes for run modal (active)
-  const { data: envelopesData } = useApiQuery(
+  const { data: envelopesData, refetch: refetchEnvelopes } = useApiQuery(
     ['envelopes-active'],
     EP.ENVELOPES,
     { status: 'sent', page_size: 50 }
@@ -92,6 +92,14 @@ export default function WorkflowBuilder() {
 
   // Build a quick lookup: workflowId -> workflow
   const workflowById = Object.fromEntries(workflows.map((w) => [w.id, w]));
+
+  const handleRefresh = useCallback(() => {
+    refetch();
+    refetchRuns();
+    refetchUsers();
+    refetchTeams();
+    refetchEnvelopes();
+  }, [refetch, refetchRuns, refetchUsers, refetchTeams, refetchEnvelopes]);
 
   // ─── Mutations ──────────────────────────────────────────────────────────────
 
@@ -125,7 +133,7 @@ export default function WorkflowBuilder() {
           const newWorkflow = { ...res.data, stages: stagePayload };
           openEditDrawer(newWorkflow);
         }
-        refetch();
+        handleRefresh();
       },
       onError: (e) => toast.error(e.response?.data?.detail || e.message),
     }
@@ -135,7 +143,7 @@ export default function WorkflowBuilder() {
     ({ id, payload }) => apiClient.patch(EP.WORKFLOW(id), payload),
     {
       invalidateKeys: ['workflows'],
-      onSuccess: () => { toast.success('Workflow updated'); refetch(); },
+      onSuccess: () => { toast.success('Workflow updated'); handleRefresh(); },
       onError: (e) => toast.error(e.response?.data?.detail || e.message),
     }
   );
@@ -144,7 +152,7 @@ export default function WorkflowBuilder() {
     (id) => apiClient.delete(EP.WORKFLOW(id)),
     {
       invalidateKeys: ['workflows'],
-      onSuccess: () => { toast.success('Workflow deleted'); refetch(); },
+      onSuccess: () => { toast.success('Workflow deleted'); handleRefresh(); },
       onError: (e) => toast.error(e.response?.data?.detail || e.message),
     }
   );
@@ -153,7 +161,7 @@ export default function WorkflowBuilder() {
     ({ id, stages: stagesPayload }) => apiClient.post(EP.WORKFLOW_REPLACE_STAGES(id), { stages: stagesPayload }),
     {
       invalidateKeys: ['workflows'],
-      onSuccess: () => { toast.success('Stages saved'); refetch(); },
+      onSuccess: () => { toast.success('Stages saved'); handleRefresh(); },
       onError: (e) => toast.error(e.response?.data?.detail || e.message),
     }
   );
@@ -166,7 +174,7 @@ export default function WorkflowBuilder() {
         toast.success('Workflow run started');
         setRunModal({ open: false, workflowId: null, workflowName: '' });
         setRunEnvelopeId('');
-        refetch();
+        handleRefresh();
       },
       onError: (e) => toast.error(e.response?.data?.detail || e.message),
     }
@@ -263,7 +271,7 @@ export default function WorkflowBuilder() {
           <p className="page-subtitle">Design and manage multi-stage signing and approval workflows</p>
         </div>
         <div className="flex gap-2">
-          <button className="btn btn-ghost" onClick={() => refetch()}>Refresh</button>
+          <button className="btn btn-ghost" onClick={handleRefresh}>Refresh</button>
           <button
             className="btn btn-primary"
             onClick={() => {

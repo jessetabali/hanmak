@@ -13,6 +13,7 @@ class OAuthApplication(models.Model):
 
     organization = models.ForeignKey(Organization, related_name='oauth_applications', on_delete=models.CASCADE)
     name = models.CharField(max_length=255)
+    description = models.TextField(blank=True)
     client_id = models.CharField(max_length=64, unique=True, default=secrets.token_urlsafe)
     client_secret_hash = models.CharField(max_length=128, blank=True)
     redirect_uris = models.JSONField(default=list, blank=True)

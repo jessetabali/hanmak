@@ -731,6 +731,35 @@ class TenantScopedAPITests(TestCase):
         self.assertNotEqual(app.client_secret_hash, response.data['client_secret'])
         self.assertNotIn('client_secret_hash', response.data)
 
+    def test_oauth_app_create_edit_toggle_and_legacy_rotation_contracts(self):
+        self.client.force_authenticate(self.user_a)
+
+        create_response = self.client.post('/api/v1/oauth-apps/', {
+            'organization': self.org_a.id,
+            'name': 'Partner Portal',
+            'description': 'Partner integration',
+            'redirect_uris': ['https://partner.example.com/oauth/callback'],
+            'scopes': ['read', 'signing'],
+        }, format='json')
+        app = OAuthApplication.objects.get(name='Partner Portal')
+        edit_response = self.client.patch(f'/api/v1/oauth-apps/{app.id}/', {
+            'description': 'Updated integration',
+            'status': OAuthApplication.Status.DISABLED,
+        }, format='json')
+        legacy_rotate_response = self.client.post(f'/api/v1/oauth-apps/{app.id}/rotate_secret/')
+        app.refresh_from_db()
+
+        self.assertEqual(create_response.status_code, status.HTTP_201_CREATED)
+        self.assertIn('client_secret', create_response.data)
+        self.assertEqual(create_response.data['description'], 'Partner integration')
+        self.assertTrue(create_response.data['is_enabled'])
+        self.assertEqual(edit_response.status_code, status.HTTP_200_OK)
+        self.assertFalse(edit_response.data['is_enabled'])
+        self.assertEqual(app.description, 'Updated integration')
+        self.assertEqual(app.status, OAuthApplication.Status.DISABLED)
+        self.assertEqual(legacy_rotate_response.status_code, status.HTTP_200_OK)
+        self.assertTrue(legacy_rotate_response.data['client_secret'].startswith('hm_oauth_'))
+
     def test_license_creation_seeds_backend_feature_list_for_ui(self):
         self.client.force_authenticate(self.user_a)
 
@@ -1495,6 +1524,49 @@ class TenantScopedAPITests(TestCase):
         self.assertEqual(summary_response.data['failed'], 1)
         self.assertEqual(summary_response.data['bounced'], 1)
         self.assertEqual(summary_response.data['active_reminder_schedules'], 1)
+
+    def test_email_messages_filter_by_status_alias_kind_search_and_scope(self):
+        self.client.force_authenticate(self.user_a)
+        queued = EmailMessage.objects.create(
+            organization=self.org_a,
+            envelope=self.envelope_a,
+            recipient=self.recipient_a,
+            kind=EmailMessage.Kind.REMINDER,
+            to_email='center@example.com',
+            subject='Center renewal reminder',
+            body='Please renew.',
+            status=EmailMessage.Status.QUEUED,
+        )
+        sent = EmailMessage.objects.create(
+            organization=self.org_a,
+            envelope=self.envelope_a,
+            recipient=self.recipient_a,
+            kind=EmailMessage.Kind.ENVELOPE_INVITE,
+            to_email='signer@example.com',
+            subject='Signature request',
+            body='Please sign.',
+            status=EmailMessage.Status.SENT,
+        )
+        EmailMessage.objects.create(
+            organization=self.org_b,
+            envelope=self.envelope_b,
+            kind=EmailMessage.Kind.REMINDER,
+            to_email='other@example.com',
+            subject='Other org reminder',
+            body='Hidden.',
+            status=EmailMessage.Status.QUEUED,
+        )
+
+        pending_response = self.client.get('/api/v1/email-messages/?status=pending&kind=reminder&search=center')
+        delivered_response = self.client.get('/api/v1/email-messages/?status=delivered')
+        hidden_response = self.client.get('/api/v1/email-messages/?search=other')
+
+        self.assertEqual(pending_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(delivered_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(hidden_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(self.ids_from_paginated_response(pending_response), {queued.id})
+        self.assertEqual(self.ids_from_paginated_response(delivered_response), {sent.id})
+        self.assertEqual(self.ids_from_paginated_response(hidden_response), set())
 
     def test_public_bounce_webhook_marks_matching_email_failed(self):
         message = EmailMessage.objects.create(

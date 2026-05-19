@@ -121,8 +121,13 @@ export default function AuditTrail() {
   const hasNext = !!data?.next;
   const hasPrev = !!data?.previous;
 
-  const { data: envelopesData } = useApiQuery(['envelopes-picker'], EP.ENVELOPES, { page_size: 100, status: 'completed' });
+  const { data: envelopesData, refetch: refetchEnvelopes } = useApiQuery(['envelopes-picker'], EP.ENVELOPES, { page_size: 100, status: 'completed' });
   const envelopes = envelopesData?.results ?? [];
+
+  const handleRefresh = useCallback(() => {
+    refetch();
+    refetchEnvelopes();
+  }, [refetch, refetchEnvelopes]);
 
   const createBundleMutation = useApiMutation(
     (payload) => apiClient.post(EP.EVIDENCE_BUNDLES, payload),
@@ -208,7 +213,7 @@ export default function AuditTrail() {
           <p className="page-subtitle">Immutable activity log for all organization events</p>
         </div>
         <div className="flex gap-2">
-          <button className="btn btn-ghost" onClick={() => refetch()}>Refresh</button>
+          <button className="btn btn-ghost" onClick={handleRefresh}>Refresh</button>
           <button className="btn btn-primary" onClick={openCreateBundle}>
             Create Evidence Bundle
           </button>

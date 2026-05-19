@@ -23,7 +23,7 @@ export default function DataResidency() {
   const [enforcementPending, setEnforcementPending] = useState(false);
   const [form, setForm] = useState({ resource_type: 'envelopes', region: '' });
 
-  const { data: regionsData, isLoading: regionsLoading } = useApiQuery(
+  const { data: regionsData, isLoading: regionsLoading, refetch: refetchRegions } = useApiQuery(
     ['residency-regions'],
     EP.DATA_RESIDENCY_REGIONS
   );
@@ -38,6 +38,12 @@ export default function DataResidency() {
 
   const regions = regionsData?.results ?? regionsData ?? [];
   const policies = policiesData?.results ?? policiesData ?? [];
+
+  const handleRefresh = useCallback(() => {
+    refetchRegions();
+    refetchPolicies();
+    refetchSummary();
+  }, [refetchRegions, refetchPolicies, refetchSummary]);
 
   const isEnforcementEnabled = summaryData?.enforcement_enabled ?? false;
   const compliantCount = summaryData?.compliant ?? 0;
@@ -108,7 +114,7 @@ export default function DataResidency() {
           <p className="page-subtitle">Region policies and enforcement settings</p>
         </div>
         <div className="flex gap-2">
-          <button className="btn btn-ghost" onClick={() => { refetchPolicies(); refetchSummary(); }}>Refresh</button>
+          <button className="btn btn-ghost" onClick={handleRefresh}>Refresh</button>
           <button className="btn btn-primary" onClick={() => setCreatePolicyModal(true)}>+ New Policy</button>
         </div>
       </div>

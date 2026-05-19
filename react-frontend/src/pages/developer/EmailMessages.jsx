@@ -12,9 +12,17 @@ import Pagination from '../../components/ui/Pagination';
 
 const STATUS_TABS = [
   { id: 'all', label: 'All' },
-  { id: 'pending', label: 'Pending' },
+  { id: 'queued', label: 'Pending' },
   { id: 'failed', label: 'Failed' },
-  { id: 'delivered', label: 'Delivered' },
+  { id: 'sent', label: 'Delivered' },
+];
+
+const KIND_FILTERS = [
+  { id: 'all', label: 'All email types' },
+  { id: 'invitation', label: 'Invitations' },
+  { id: 'envelope_invite', label: 'Envelope invites' },
+  { id: 'reminder', label: 'Reminders' },
+  { id: 'completed', label: 'Completed notices' },
 ];
 
 function emailStatusColor(status) {
@@ -105,7 +113,7 @@ function MessageDrawer({ message, onClose, onRetry, onBounce }) {
                 ↻ Retry
               </button>
             )}
-            {(message.status === 'delivered' || message.status === 'sent' || message.status === 'pending') && (
+            {(message.status === 'delivered' || message.status === 'sent' || message.status === 'queued') && (
               <button
                 className="btn btn-ghost btn-sm"
                 style={{ color: 'var(--danger)' }}
@@ -127,6 +135,7 @@ function MessageDrawer({ message, onClose, onRetry, onBounce }) {
 export default function EmailMessages() {
   const toast = useToast();
   const [activeTab, setActiveTab] = useState('all');
+  const [kind, setKind] = useState('all');
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [page, setPage] = useState(1);
@@ -143,13 +152,14 @@ export default function EmailMessages() {
     return () => clearTimeout(searchTimer.current);
   }, [search]);
 
-  const { data: summaryData } = useApiQuery(['email-summary'], '/email-messages/summary/');
+  const { data: summaryData, refetch: refetchSummary, isFetching: isSummaryFetching } = useApiQuery(['email-summary'], EP.EMAIL_MESSAGES_SUMMARY);
 
-  const { data: messagesData, isLoading, refetch } = useApiQuery(
-    ['email-messages', activeTab, debouncedSearch, page],
-    '/email-messages/',
+  const { data: messagesData, isLoading, isFetching: isMessagesFetching, refetch: refetchMessages } = useApiQuery(
+    ['email-messages', activeTab, kind, debouncedSearch, page],
+    EP.EMAIL_MESSAGES,
     {
       status: activeTab === 'all' ? undefined : activeTab,
+      kind: kind === 'all' ? undefined : kind,
       search: debouncedSearch || undefined,
       page,
     }
@@ -160,24 +170,30 @@ export default function EmailMessages() {
   const hasNext = !!messagesData?.next;
   const hasPrev = !!messagesData?.previous;
   const summary = summaryData || {};
+  const isRefreshing = isMessagesFetching || isSummaryFetching;
 
   const retryMutation = useApiMutation(
-    (id) => apiClient.post(`/email-messages/${id}/retry/`),
+    (id) => apiClient.post(`${EP.EMAIL_MESSAGES}${id}/retry/`),
     {
       invalidateKeys: ['email-messages', 'email-summary'],
-      onSuccess: () => { toast.success('Email queued for retry'); refetch(); },
+      onSuccess: () => { toast.success('Email queued for retry'); refetchMessages(); refetchSummary(); },
       onError: (e) => toast.error(e.response?.data?.detail || e.message),
     }
   );
 
   const bounceMutation = useApiMutation(
-    (id) => apiClient.post(`/email-messages/${id}/mark_bounced/`),
+    (id) => apiClient.post(`${EP.EMAIL_MESSAGES}${id}/mark_bounced/`),
     {
       invalidateKeys: ['email-messages', 'email-summary'],
-      onSuccess: () => { toast.success('Email marked as bounced'); refetch(); },
+      onSuccess: () => { toast.success('Email marked as bounced'); refetchMessages(); refetchSummary(); },
       onError: (e) => toast.error(e.response?.data?.detail || e.message),
     }
   );
+
+  const handleRefresh = useCallback(() => {
+    refetchMessages();
+    refetchSummary();
+  }, [refetchMessages, refetchSummary]);
 
   const handleTabChange = useCallback((tabId) => {
     setActiveTab(tabId);
@@ -188,9 +204,14 @@ export default function EmailMessages() {
     setSearch(e.target.value);
   }, []);
 
+  const handleKindChange = useCallback((e) => {
+    setKind(e.target.value);
+    setPage(1);
+  }, []);
+
   const statsCards = [
     ['Total', summary.total ?? count],
-    ['Delivered', summary.sent ?? summary.delivered ?? '—'],
+    ['Delivered', summary.sent ?? '—'],
     ['Failed', summary.failed ?? '—'],
     ['Pending', summary.queued ?? summary.pending ?? '—'],
   ];
@@ -203,7 +224,9 @@ export default function EmailMessages() {
           <p className="page-subtitle">Outbound email log, delivery tracking, and retry management</p>
         </div>
         <div className="flex gap-2">
-          <button className="btn btn-ghost" onClick={refetch}>↺ Refresh</button>
+          <button className="btn btn-ghost" onClick={handleRefresh} disabled={isRefreshing}>
+            {isRefreshing ? 'Refreshing…' : '↺ Refresh'}
+          </button>
         </div>
       </div>
 
@@ -233,7 +256,7 @@ export default function EmailMessages() {
                     {summary.failed}
                   </span>
                 )}
-                {tab.id === 'pending' && summary.queued > 0 && (
+                {tab.id === 'queued' && summary.queued > 0 && (
                   <span className="badge badge-warning" style={{ marginLeft: '0.375rem', fontSize: '0.68rem' }}>
                     {summary.queued}
                   </span>
@@ -241,13 +264,20 @@ export default function EmailMessages() {
               </button>
             ))}
           </div>
-          <input
-            className="form-input"
-            style={{ width: '220px' }}
-            placeholder="Search recipient or subject…"
-            value={search}
-            onChange={handleSearch}
-          />
+          <div className="flex gap-2" style={{ flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+            <select className="form-input" style={{ width: '190px' }} value={kind} onChange={handleKindChange}>
+              {KIND_FILTERS.map((item) => (
+                <option key={item.id} value={item.id}>{item.label}</option>
+              ))}
+            </select>
+            <input
+              className="form-input"
+              style={{ width: '240px' }}
+              placeholder="Search recipient, subject, error…"
+              value={search}
+              onChange={handleSearch}
+            />
+          </div>
         </div>
 
         {/* Table */}
@@ -318,7 +348,7 @@ export default function EmailMessages() {
                             ↻ Retry
                           </button>
                         )}
-                        {(msg.status === 'delivered' || msg.status === 'sent' || msg.status === 'pending') && (
+                        {(msg.status === 'delivered' || msg.status === 'sent' || msg.status === 'queued') && (
                           <button
                             className="btn btn-ghost btn-sm"
                             style={{ color: 'var(--danger)' }}
