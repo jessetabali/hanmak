@@ -248,11 +248,11 @@ export default function Profile() {
       toast.error('Passwords do not match');
       return;
     }
-    if (new_password.length < 12) {
-      toast.error('New password must be at least 12 characters');
+    if (new_password.length < 8) {
+      toast.error('New password must be at least 8 characters');
       return;
     }
-    pwMutation.mutate({ old_password: current_password, new_password, confirm_password: confirm });
+    pwMutation.mutate({ current_password, new_password });
   }, [pwForm, pwMutation, toast]);
 
   const handleSetupTotp = useCallback(async () => {

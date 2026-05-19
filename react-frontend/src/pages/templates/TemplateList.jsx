@@ -53,7 +53,7 @@ export default function TemplateList() {
   // Create envelope from template
   const [envelopeFromTemplate, setEnvelopeFromTemplate] = useState(null);
   const [envName, setEnvName] = useState('');
-  const [envRecipients, setEnvRecipients] = useState([{ name: '', email: '', role: 'signer', party_key: '' }]);
+  const [envRecipients, setEnvRecipients] = useState([{ name: '', email: '' }]);
 
   // ---- Queries ----
   // Summary: use count from a page_size=1 request
@@ -63,7 +63,7 @@ export default function TemplateList() {
     { page_size: 1 }
   );
 
-  const { data, isLoading, refetch } = useApiQuery(
+  const { data, isLoading } = useApiQuery(
     ['templates', search, status, page],
     EP.TEMPLATES,
     { search, status, ordering: '-created_at', page }
@@ -128,10 +128,7 @@ export default function TemplateList() {
   );
 
   const createEnvelopeMutation = useApiMutation(
-    (payload) => {
-      const { useTemplateEndpoint, ...data } = payload;
-      return apiClient.post(useTemplateEndpoint ? EP.ENVELOPE_CREATE_FROM_TEMPLATE : EP.ENVELOPES, data);
-    },
+    (payload) => apiClient.post(EP.ENVELOPES, payload),
     {
       invalidateKeys: ['envelopes', 'envelopes-summary'],
       onSuccess: (res) => {
@@ -224,7 +221,7 @@ export default function TemplateList() {
 
   const resetEnvForm = () => {
     setEnvName('');
-    setEnvRecipients([{ name: '', email: '', role: 'signer', party_key: '' }]);
+    setEnvRecipients([{ name: '', email: '' }]);
   };
 
   const handleEnvelopeFromTemplateSubmit = () => {
@@ -232,38 +229,15 @@ export default function TemplateList() {
     const validRecipients = envRecipients.filter(r => r.name.trim() && r.email.trim());
     if (!validRecipients.length) { toast.error('At least one recipient with name and email is required'); return; }
     const orgId = localStorage.getItem('HANMAK_ORGANIZATION_ID');
-    const latestVersionId = envelopeFromTemplate?.latest_version;
-    if (latestVersionId) {
-      createEnvelopeMutation.mutate({
-        useTemplateEndpoint: true,
-        organization: orgId ? Number(orgId) : undefined,
-        template_version: latestVersionId,
-        name: envName.trim(),
-        send: false,
-        recipients: validRecipients.map((r, i) => ({
-          name: r.name.trim(),
-          email: r.email.trim(),
-          role: r.role || 'signer',
-          routing_order: i + 1,
-          ...(r.party_key ? { party_key: r.party_key } : {}),
-        })),
-      });
-    } else {
-      createEnvelopeMutation.mutate({
-        name: envName.trim(),
-        organization: orgId ? Number(orgId) : undefined,
-        template: envelopeFromTemplate?.id,
-        recipients: validRecipients.map((r, i) => ({
-          name: r.name.trim(),
-          email: r.email.trim(),
-          role: r.role || 'signer',
-          routing_order: i + 1,
-        })),
-      });
-    }
+    createEnvelopeMutation.mutate({
+      name: envName.trim(),
+      organization: orgId ? Number(orgId) : undefined,
+      template: envelopeFromTemplate?.id,
+      recipients: validRecipients.map((r, i) => ({ name: r.name.trim(), email: r.email.trim(), routing_order: i + 1 })),
+    });
   };
 
-  const addEnvRecipient = () => setEnvRecipients(prev => [...prev, { name: '', email: '', role: 'signer', party_key: '' }]);
+  const addEnvRecipient = () => setEnvRecipients(prev => [...prev, { name: '', email: '' }]);
   const updateEnvRecipient = (idx, field, val) => {
     setEnvRecipients(prev => prev.map((r, i) => i === idx ? { ...r, [field]: val } : r));
   };
@@ -274,7 +248,7 @@ export default function TemplateList() {
   // so we calculate them from the current page as a best-effort, and show total from count.
   const activeCount = templates.filter(t => t.status === 'active' || t.is_active === true).length;
   const draftCount = templates.filter(t => t.status === 'draft').length;
-  const versionsCount = templates.reduce((sum, t) => sum + (t.versions?.length || (t.version ? 1 : 0)), 0);
+  const archivedCount = templates.filter(t => t.status === 'archived' || t.is_active === false).length;
 
   return (
     <div>
@@ -282,10 +256,9 @@ export default function TemplateList() {
       <div className="page-header">
         <div>
           <h1 className="page-title">Templates</h1>
-          <p className="page-subtitle">Live template library, versions, parties, and field mappings</p>
+          <p className="page-subtitle">Reusable document signing templates</p>
         </div>
         <div className="flex gap-2">
-          <button className="btn btn-ghost" onClick={() => refetch()}>↻ Refresh</button>
           <button className="btn btn-primary" onClick={() => { resetCreateForm(); setCreateModal(true); }}>
             + New Template
           </button>
@@ -295,7 +268,7 @@ export default function TemplateList() {
       {/* Stats */}
       <div className="stats-grid" style={{ '--cols': 4, marginBottom: '1.5rem' }}>
         <div className="stat-card">
-          <div className="stat-label">Templates</div>
+          <div className="stat-label">Total</div>
           <div className="stat-value">{totalCount}</div>
         </div>
         <div className="stat-card">
@@ -307,8 +280,8 @@ export default function TemplateList() {
           <div className="stat-value" style={{ color: 'var(--text-muted)' }}>{draftCount}</div>
         </div>
         <div className="stat-card">
-          <div className="stat-label">Versions</div>
-          <div className="stat-value" style={{ color: 'var(--text-muted)' }}>{versionsCount}</div>
+          <div className="stat-label">Archived</div>
+          <div className="stat-value" style={{ color: 'var(--text-muted)' }}>{archivedCount}</div>
         </div>
       </div>
 
@@ -619,55 +592,34 @@ export default function TemplateList() {
 
           <div>
             <div style={{ fontWeight: 700, marginBottom: '0.5rem' }}>Recipients *</div>
-            {(() => {
-              const partyOptions = envelopeFromTemplate?.party_options || [];
-              const hasParties = partyOptions.length > 0;
-              return (
-                <div className="flex flex-col gap-2">
-                  {envRecipients.map((r, idx) => (
-                    <div key={idx} style={{ padding: '0.75rem', border: '1px solid var(--border)', borderRadius: 6, display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
-                        <input
-                          className="form-input"
-                          placeholder="Full name"
-                          value={r.name}
-                          onChange={e => updateEnvRecipient(idx, 'name', e.target.value)}
-                        />
-                        <input
-                          className="form-input"
-                          placeholder="Email address"
-                          type="email"
-                          value={r.email}
-                          onChange={e => updateEnvRecipient(idx, 'email', e.target.value)}
-                        />
-                      </div>
-                      <div style={{ display: 'grid', gridTemplateColumns: hasParties ? '1fr 1fr auto' : '1fr auto', gap: '0.5rem', alignItems: 'center' }}>
-                        <select className="form-input" value={r.role} onChange={e => updateEnvRecipient(idx, 'role', e.target.value)}>
-                          <option value="signer">Signer</option>
-                          <option value="approver">Approver</option>
-                          <option value="cc">CC</option>
-                        </select>
-                        {hasParties && (
-                          <select className="form-input" value={r.party_key} onChange={e => updateEnvRecipient(idx, 'party_key', e.target.value)}>
-                            <option value="">— Party —</option>
-                            {partyOptions.map(p => <option key={p.key} value={p.key}>{p.label}</option>)}
-                          </select>
-                        )}
-                        {envRecipients.length > 1 && (
-                          <button
-                            className="btn btn-ghost btn-sm"
-                            style={{ color: 'var(--danger)' }}
-                            onClick={() => removeEnvRecipient(idx)}
-                          >
-                            ×
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  ))}
+            <div className="flex flex-col gap-2">
+              {envRecipients.map((r, idx) => (
+                <div key={idx} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: '0.5rem', alignItems: 'center' }}>
+                  <input
+                    className="form-input"
+                    placeholder="Full name"
+                    value={r.name}
+                    onChange={e => updateEnvRecipient(idx, 'name', e.target.value)}
+                  />
+                  <input
+                    className="form-input"
+                    placeholder="Email address"
+                    type="email"
+                    value={r.email}
+                    onChange={e => updateEnvRecipient(idx, 'email', e.target.value)}
+                  />
+                  {envRecipients.length > 1 && (
+                    <button
+                      className="btn btn-ghost btn-sm"
+                      style={{ color: 'var(--danger)' }}
+                      onClick={() => removeEnvRecipient(idx)}
+                    >
+                      ×
+                    </button>
+                  )}
                 </div>
-              );
-            })()}
+              ))}
+            </div>
             <button className="btn btn-ghost btn-sm" style={{ marginTop: '0.5rem' }} onClick={addEnvRecipient}>
               + Add Recipient
             </button>

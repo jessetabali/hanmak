@@ -140,45 +140,6 @@ class LicenseKeyViewSet(OrganizationScopedQuerySetMixin, viewsets.ModelViewSet):
         license_key.save(update_fields=['status', 'activated_at', 'features'])
         return response.Response(self.get_serializer(license_key).data)
 
-    @decorators.action(detail=False, methods=['post'], url_path='activate')
-    def activate_key(self, request):
-        key = (request.data.get('key') or '').strip()
-        if not key:
-            return response.Response({'detail': 'key is required.'}, status=400)
-        license_key = self.get_queryset().filter(key=key).first()
-        if not license_key:
-            return response.Response({'detail': 'License key was not found.'}, status=404)
-        license_key.status = 'active'
-        license_key.activated_at = timezone.now()
-        if not license_key.features:
-            license_key.features = DEFAULT_LICENSE_FEATURES
-        license_key.save(update_fields=['status', 'activated_at', 'features'])
-        return response.Response(self.get_serializer(license_key).data)
-
-    @decorators.action(detail=False, methods=['post'])
-    def generate(self, request):
-        organization_id = request.data.get('organization')
-        if not organization_id:
-            first_membership = request.user.memberships.filter(is_active=True).order_by('id').first()
-            organization_id = first_membership.organization_id if first_membership else None
-        organization = Organization.objects.filter(id=organization_id).first()
-        if not organization:
-            return response.Response({'detail': 'organization is required.'}, status=400)
-        if not user_has_org_role(request.user, organization.id, [Membership.Role.ADMIN, Membership.Role.MANAGER]):
-            return response.Response({'detail': 'Admin or manager membership is required for license generation.'}, status=403)
-        payload = {
-            'organization': organization.id,
-            'key': request.data.get('key') or f'HM-{secrets.token_urlsafe(6).upper()}-{secrets.token_urlsafe(6).upper()}',
-            'edition': request.data.get('edition') or 'Pro',
-            'status': request.data.get('status') or 'active',
-            'features': request.data.get('features') or DEFAULT_LICENSE_FEATURES,
-            'expires_at': request.data.get('expires_at') or None,
-        }
-        serializer = self.get_serializer(data=payload)
-        serializer.is_valid(raise_exception=True)
-        license_key = serializer.save(activated_at=timezone.now() if payload['status'] == 'active' else None)
-        return response.Response(self.get_serializer(license_key).data, status=201)
-
 
 class InvoiceViewSet(OrganizationScopedQuerySetMixin, viewsets.ModelViewSet):
     feature_flag_key = 'billing_usage'

@@ -11,7 +11,7 @@ export const EP = {
   USER: (id) => `/users/${id}/`,
   PROFILE_ME: '/profiles/me/',
   PROFILE_ACTIVITY: '/profiles/activity/',
-  CHANGE_PASSWORD: '/profiles/change_password/',
+  CHANGE_PASSWORD: '/profiles/me/change_password/',
   SESSIONS: '/user-sessions/',
   SESSION: (id) => `/user-sessions/${id}/`,
   SESSION_REVOKE: (id) => `/user-sessions/${id}/revoke/`,
@@ -38,7 +38,6 @@ export const EP = {
   ENVELOPE_DOWNLOAD: (id) => `/envelopes/${id}/download/`,
   ENVELOPE_BULK: '/envelopes/bulk-action/',
   ENVELOPE_SUMMARY: '/envelopes/summary/',
-  ENVELOPE_CREATE_FROM_TEMPLATE: '/envelopes/create-from-template/',
   RECIPIENTS: '/recipients/',
   RECIPIENT: (id) => `/recipients/${id}/`,
   RECIPIENT_REMIND: (id) => `/recipients/${id}/remind/`,
@@ -66,8 +65,8 @@ export const EP = {
   // Signing
   SIGNING_SESSIONS: '/signing-sessions/',
   SIGN: (token) => `/sign/${token}/`,
-  SIGN_SUBMIT: (token) => `/sign/${token}/`,
-  SIGN_DECLINE: (token) => `/sign/${token}/`,
+  SIGN_SUBMIT: (token) => `/sign/${token}/submit/`,
+  SIGN_DECLINE: (token) => `/sign/${token}/decline/`,
 
   // Workflow
   WORKFLOWS: '/workflows/',

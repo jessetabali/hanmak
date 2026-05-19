@@ -249,7 +249,7 @@ export default function WorkflowBuilder() {
 
   function submitRun() {
     if (!runEnvelopeId) { toast.error('Select an envelope.'); return; }
-    createRunMutation.mutate({ workflow: runModal.workflowId, envelope: Number(runEnvelopeId) });
+    createRunMutation.mutate({ workflow: runModal.workflowId, envelope: runEnvelopeId });
   }
 
   // ─── render ──────────────────────────────────────────────────────────────────
@@ -260,11 +260,10 @@ export default function WorkflowBuilder() {
       <div className="page-header">
         <div>
           <h1 className="page-title">Workflow Builder</h1>
-          <p className="page-subtitle">Live approval and signing workflow definitions</p>
+          <p className="page-subtitle">Design and manage multi-stage signing and approval workflows</p>
         </div>
         <div className="flex gap-2">
-          <button className="btn btn-ghost" onClick={() => refetch()}>↻ Refresh</button>
-          <button className="btn btn-ghost" onClick={() => { const issues = workflows.filter(w => !w.stages?.length); if (issues.length) { toast.error(`${issues.length} workflow(s) have no stages`); } else { toast.success('All workflows are valid'); } }}>✓ Validate</button>
+          <button className="btn btn-ghost" onClick={() => refetch()}>Refresh</button>
           <button
             className="btn btn-primary"
             onClick={() => {
@@ -277,7 +276,7 @@ export default function WorkflowBuilder() {
               setCreateModal({ open: true });
             }}
           >
-            + New Workflow
+            + Create Workflow
           </button>
         </div>
       </div>
@@ -286,7 +285,7 @@ export default function WorkflowBuilder() {
       <div className="stats-grid" style={{ '--cols': 4, marginBottom: '1.5rem' }}>
         <div className="stat-card"><div className="stat-label">Definitions</div><div className="stat-value">{totalWorkflows}</div></div>
         <div className="stat-card"><div className="stat-label">Active</div><div className="stat-value" style={{ color: '#10b981' }}>{activeWorkflows}</div></div>
-        <div className="stat-card"><div className="stat-label">Stages</div><div className="stat-value">{totalStages}</div></div>
+        <div className="stat-card"><div className="stat-label">Total Stages</div><div className="stat-value">{totalStages}</div></div>
         <div className="stat-card"><div className="stat-label">Running</div><div className="stat-value" style={{ color: '#f59e0b' }}>{runningRuns}</div></div>
       </div>
 

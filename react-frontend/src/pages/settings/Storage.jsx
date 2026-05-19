@@ -60,7 +60,7 @@ export default function Storage() {
   const setF = (key, value) => setForm((prev) => ({ ...prev, [key]: value }));
 
   const saveMutation = useApiMutation(
-    (payload) => apiClient.post(EP.STORAGE_SETTINGS, payload),
+    (payload) => apiClient.patch(EP.STORAGE_SETTINGS, payload),
     {
       invalidateKeys: ['storage-settings'],
       onSuccess: () => toast.success('Storage settings saved'),
