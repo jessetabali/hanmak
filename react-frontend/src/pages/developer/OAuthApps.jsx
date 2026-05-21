@@ -11,10 +11,11 @@ import EmptyState from '../../components/ui/EmptyState';
 import ConfirmDialog from '../../components/ui/ConfirmDialog';
 
 const ALL_SCOPES = [
-  'read',
-  'write',
-  'admin',
-  'signing',
+  'envelopes:read',
+  'envelopes:write',
+  'templates:read',
+  'signatures:write',
+  'users:read',
 ];
 
 function SecretRevealModal({ secret, onClose }) {
@@ -67,6 +68,7 @@ function AppFormModal({ app, onClose, onSaved }) {
   const [description, setDescription] = useState(app?.description || '');
   const [redirectUris, setRedirectUris] = useState((app?.redirect_uris || []).join('\n'));
   const [scopes, setScopes] = useState(app?.scopes || []);
+  const [status, setStatus] = useState(app?.status || 'active');
 
   const mutation = useApiMutation(
     (payload) =>
@@ -102,6 +104,7 @@ function AppFormModal({ app, onClose, onSaved }) {
       description: description.trim(),
       redirect_uris: uris,
       scopes,
+      ...(app ? { status } : {}),
       ...(!app && organizationId ? { organization: organizationId } : {}),
     });
   };
@@ -142,6 +145,15 @@ function AppFormModal({ app, onClose, onSaved }) {
           placeholder="Optional description"
         />
       </div>
+      {app && (
+        <div className="form-group">
+          <label className="form-label">Status</label>
+          <select className="form-input" value={status} onChange={(e) => setStatus(e.target.value)}>
+            <option value="active">Active</option>
+            <option value="disabled">Disabled</option>
+          </select>
+        </div>
+      )}
       <div className="form-group">
         <label className="form-label">Redirect URIs *</label>
         <textarea

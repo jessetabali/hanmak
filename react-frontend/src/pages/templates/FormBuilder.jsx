@@ -30,6 +30,7 @@ const FIELD_DEFAULTS = {
   textarea:   { w: 200, h: 60 },
   number:     { w: 100, h: 28 },
   email:      { w: 180, h: 28 },
+  radio:      { w: 160, h: 80 },
 };
 
 const FIELD_LABELS = {
@@ -43,6 +44,7 @@ const FIELD_LABELS = {
   textarea:   'Text Area',
   number:     'Number',
   email:      'Email',
+  radio:      'Radio Group',
 };
 
 const FIELD_GROUPS = [
@@ -62,6 +64,7 @@ const FIELD_GROUPS = [
     color: '#7c3aed',
     tools: [
       { icon: '▼',  type: 'dropdown',   label: 'Dropdown' },
+      { icon: '◉',  type: 'radio',      label: 'Radio Group' },
       { icon: '☑',  type: 'checkbox',   label: 'Checkbox' },
       { icon: '📎', type: 'attachment', label: 'Attachment' },
     ],
@@ -144,6 +147,7 @@ export default function FormBuilder() {
   const [templateName, setTemplateName] = useState('New Template');
   const [addPartyName, setAddPartyName] = useState('');
   const [showAddParty, setShowAddParty] = useState(false);
+  const [editingPartyId, setEditingPartyId] = useState(null);
   const [editField, setEditField] = useState(null); // snapshot for inspector
 
   // Drag state kept in ref to avoid re-renders
@@ -167,19 +171,34 @@ export default function FormBuilder() {
     { enabled: !!templateId },
   );
 
-  // If a specific doc ID was passed in the URL (?doc=X), fetch it directly;
-  // otherwise load all documents and pick the first (legacy behaviour).
+  // ── Derive the document ID from the loaded version (for existing templates) ──
+  // This must come after versionsData is declared so hooks run in stable order.
+  const versionsArray = versionsData?.results ?? (Array.isArray(versionsData) ? versionsData : []);
+  const versionDocId = !docParam ? (versionsArray[0]?.document ?? null) : null;
+  // "versionsLoaded" means the query has returned something (even an empty list).
+  // We delay the document-library fallback until we know whether a version doc exists.
+  const versionsLoaded = versionsData !== undefined;
+
+  // Priority 1 — URL param ?doc=X (used when navigating from template creation)
   const { data: specificDocData } = useApiQuery(
     ['document', docParam],
     docParam ? EP.DOCUMENT(docParam) : null,
     {},
     { enabled: !!docParam },
   );
+  // Priority 2 — document attached to the latest template version
+  const { data: versionDocData } = useApiQuery(
+    ['document-from-version', versionDocId],
+    versionDocId ? EP.DOCUMENT(versionDocId) : null,
+    {},
+    { enabled: !!versionDocId },
+  );
+  // Priority 3 — first doc in the library (only for brand-new templates with no version)
   const { data: documentsData } = useApiQuery(
     ['documents', templateId],
     EP.DOCUMENTS,
     {},
-    { enabled: !!templateId && !docParam },
+    { enabled: !!templateId && !docParam && versionsLoaded && versionDocId === null },
   );
 
   // ── Load template data ─────────────────────────────────────────────────────
@@ -189,12 +208,25 @@ export default function FormBuilder() {
     }
   }, [templateData]);
 
-  // ── Load fields from template version ─────────────────────────────────────
+  // ── Load fields and parties from template version ──────────────────────────
   useEffect(() => {
     if (!versionsData) return;
     const versions = versionsData.results || versionsData;
     const latest = versions[0];
-    if (!latest?.field_schema?.fields?.length) return;
+    if (!latest) return;
+
+    // Restore saved party names from the stored TemplateParty records
+    if (Array.isArray(latest.parties) && latest.parties.length > 0) {
+      setParties(
+        latest.parties.map((p, i) => ({
+          id: p.role_key,
+          name: p.label || p.role_key.replace('-', ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
+          color: PARTY_COLORS[i % PARTY_COLORS.length],
+        })),
+      );
+    }
+
+    if (!latest.field_schema?.fields?.length) return;
     const schema = latest.field_schema;
     const loaded = schema.fields.map((f, i) => ({
       id: `f${i + 1}`,
@@ -216,12 +248,14 @@ export default function FormBuilder() {
 
   // ── Render document pages on mount ────────────────────────────────────────
   useEffect(() => {
-    // Prefer the specifically-requested document; fall back to first in list
-    const doc = specificDocData || ((() => {
+    // Priority 1: URL ?doc param; Priority 2: version's document; Priority 3: library fallback
+    const doc = specificDocData || versionDocData || ((() => {
       const docs = documentsData?.results ?? (Array.isArray(documentsData) ? documentsData : null);
       return docs?.[0] ?? null;
     })());
     if (!doc) return;
+    // Avoid re-rendering when nothing changed
+    if (loadedDocIdRef.current === doc.id && pageImages.length > 0) return;
     loadedDocIdRef.current = doc.id;
 
     const docId = doc.id;
@@ -236,21 +270,32 @@ export default function FormBuilder() {
           const res = await apiClient.get(fileUrl, { responseType: 'arraybuffer' });
           const pages = await renderPdfFromBytes(res.data);
           setPageImages(pages);
+          // Call prepare-for-builder AFTER rendering so we know the exact page
+          // count. This registers all pages in the backend for the signing view.
+          apiClient
+            .post(EP.DOCUMENT_PREPARE(docId), { page_count: pages.length, width: DOC_WIDTH })
+            .catch(() => {/* best-effort */});
         } catch (err) {
           toast.error('Could not render document: ' + (err.message || 'unknown error'));
+          // PDF.js failed — still tell the backend to prepare pages. Don't send
+          // page_count: 1 when we don't know the real count; let pypdf detect it.
+          apiClient
+            .post(EP.DOCUMENT_PREPARE(docId), {
+              ...(doc.page_count > 0 ? { page_count: doc.page_count } : {}),
+              width: DOC_WIDTH,
+            })
+            .catch(() => {});
         } finally {
           setLoadingPages(false);
         }
       })();
-      // Also call prepare-for-builder in the background so the backend has
-      // server-side page images for the signing view (non-blocking).
-      apiClient
-        .post(EP.DOCUMENT_PREPARE(docId), { page_count: doc.page_count || 1, width: DOC_WIDTH })
-        .catch(() => {/* best-effort */});
       return;
     }
 
     // ── Fallback: no file_url — call prepare-for-builder for server images ──
+    // Only send page_count when we already know the real value from the DB.
+    // Sending `|| 1` when page_count is 0 would poison the stored count for
+    // multi-page PDFs; let the backend auto-detect via pypdf instead.
     setLoadingPages(true);
 
     const applyPages = (pagesArr) => {
@@ -263,7 +308,10 @@ export default function FormBuilder() {
     };
 
     apiClient
-      .post(EP.DOCUMENT_PREPARE(docId), { page_count: doc.page_count || 1, width: DOC_WIDTH })
+      .post(EP.DOCUMENT_PREPARE(docId), {
+        ...(doc.page_count > 0 ? { page_count: doc.page_count } : {}),
+        width: DOC_WIDTH,
+      })
       .then((prepRes) => {
         const prepData = prepRes.data;
         const fromPrepare = prepData?.rendered_pages?.length
@@ -290,7 +338,7 @@ export default function FormBuilder() {
         toast.error('Could not render document pages: ' + (err.response?.data?.detail || err.message));
       })
       .finally(() => setLoadingPages(false));
-  }, [documentsData, specificDocData]);
+  }, [documentsData, specificDocData, versionDocData]);
 
   // ── Save mutation ──────────────────────────────────────────────────────────
   const saveMutation = useApiMutation(
@@ -346,7 +394,7 @@ export default function FormBuilder() {
   );
 
   // ── Drag move/resize (field overlays) ─────────────────────────────────────
-  const startDragField = useCallback((e, idx) => {
+  const startDragField = useCallback((e, idx, mode = 'move') => {
     e.preventDefault();
     e.stopPropagation();
     const f = fields[idx];
@@ -357,23 +405,39 @@ export default function FormBuilder() {
       startY: e.clientY,
       origX: f.x,
       origY: f.y,
-      mode: 'move',
+      origW: f.w,
+      origH: f.h,
+      mode,
     };
 
     const onMove = (me) => {
       const dr = dragRef.current;
       if (!dr.active) return;
-      const pageEl = pageRefs.current[f.pageIndex];
-      if (!pageEl) return;
       const imgWidth = pageImages[f.pageIndex]?.width || DOC_WIDTH;
       const scale = DOC_WIDTH / imgWidth;
       const dx = (me.clientX - dr.startX) / scale;
       const dy = (me.clientY - dr.startY) / scale;
-      const newX = Math.max(0, Math.min(Math.round(dr.origX + dx), DOC_WIDTH - f.w));
-      const newY = Math.max(0, Math.round(dr.origY + dy));
+
       setFields((prev) => {
         const next = [...prev];
-        next[dr.fieldIdx] = { ...next[dr.fieldIdx], x: newX, y: newY };
+        const cur = next[dr.fieldIdx];
+        if (dr.mode === 'move') {
+          const newX = Math.max(0, Math.min(Math.round(dr.origX + dx), DOC_WIDTH - cur.w));
+          const newY = Math.max(0, Math.round(dr.origY + dy));
+          next[dr.fieldIdx] = { ...cur, x: newX, y: newY };
+        } else if (dr.mode === 'resize-se') {
+          next[dr.fieldIdx] = { ...cur, w: Math.max(40, Math.round(dr.origW + dx)), h: Math.max(18, Math.round(dr.origH + dy)) };
+        } else if (dr.mode === 'resize-sw') {
+          const newW = Math.max(40, Math.round(dr.origW - dx));
+          next[dr.fieldIdx] = { ...cur, x: Math.max(0, Math.round(dr.origX + dr.origW - newW)), w: newW, h: Math.max(18, Math.round(dr.origH + dy)) };
+        } else if (dr.mode === 'resize-ne') {
+          const newH = Math.max(18, Math.round(dr.origH - dy));
+          next[dr.fieldIdx] = { ...cur, y: Math.max(0, Math.round(dr.origY + dr.origH - newH)), w: Math.max(40, Math.round(dr.origW + dx)), h: newH };
+        } else if (dr.mode === 'resize-nw') {
+          const newW = Math.max(40, Math.round(dr.origW - dx));
+          const newH = Math.max(18, Math.round(dr.origH - dy));
+          next[dr.fieldIdx] = { ...cur, x: Math.max(0, Math.round(dr.origX + dr.origW - newW)), y: Math.max(0, Math.round(dr.origY + dr.origH - newH)), w: newW, h: newH };
+        }
         return next;
       });
     };
@@ -422,6 +486,13 @@ export default function FormBuilder() {
     setAddPartyName('');
     setShowAddParty(false);
   }, [addPartyName, parties.length]);
+
+  // ── Rename party ───────────────────────────────────────────────────────────
+  const renameParty = useCallback((id, newName) => {
+    const trimmed = newName.trim();
+    if (trimmed) setParties((prev) => prev.map((p) => (p.id === id ? { ...p, name: trimmed } : p)));
+    setEditingPartyId(null);
+  }, []);
 
   // ── PDF upload directly from the builder ─────────────────────────────────
   const handleUploadPdf = useCallback(async (file) => {
@@ -524,12 +595,12 @@ export default function FormBuilder() {
         await apiClient.patch(EP.TEMPLATE(templateId), { name: templateName.trim() }).catch(() => {});
       }
       const serialized = serializeFields();
-      // TemplateSetupSerializer expects: { document, fields, changelog }
-      // Party objects are auto-derived by setup_template_version from field party_keys
       await saveMutation.mutateAsync({
         document: loadedDocIdRef.current,
         fields: serialized,
         changelog: 'Updated via Form Builder',
+        // Pass party labels so custom names (e.g. "Buyer") are persisted
+        parties: parties.map((p) => ({ key: p.id, label: p.name })),
       });
       // saveMutation.onSuccess handles toast.success and navigate
     } catch {
@@ -537,7 +608,7 @@ export default function FormBuilder() {
     } finally {
       setSaving(false);
     }
-  }, [fields, templateName, pageImages, serializeFields, saveMutation, templateId, toast]);
+  }, [fields, parties, templateName, pageImages, serializeFields, saveMutation, templateId, toast]);
 
   // ── Render ────────────────────────────────────────────────────────────────
   const selectedField = selectedFieldIdx !== null ? fields[selectedFieldIdx] : null;
@@ -610,19 +681,36 @@ export default function FormBuilder() {
           </span>
           <div style={{ display: 'flex', gap: 4 }}>
             {parties.map((p, i) => (
-              <button
-                key={p.id}
-                className="btn btn-sm"
-                onClick={() => setActivePartyIdx(i)}
-                style={{
-                  color: p.color,
-                  borderColor: activePartyIdx === i ? p.color : 'var(--border)',
-                  background: activePartyIdx === i ? `${p.color}18` : 'transparent',
-                  fontSize: 12,
-                }}
-              >
-                {p.name}
-              </button>
+              editingPartyId === p.id ? (
+                <input
+                  key={p.id}
+                  className="form-input"
+                  defaultValue={p.name}
+                  autoFocus
+                  style={{ fontSize: 12, padding: '3px 8px', width: 110, borderColor: p.color }}
+                  onBlur={(e) => renameParty(p.id, e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') renameParty(p.id, e.target.value);
+                    if (e.key === 'Escape') setEditingPartyId(null);
+                  }}
+                />
+              ) : (
+                <button
+                  key={p.id}
+                  className="btn btn-sm"
+                  onClick={() => setActivePartyIdx(i)}
+                  onDoubleClick={() => setEditingPartyId(p.id)}
+                  title="Double-click to rename"
+                  style={{
+                    color: p.color,
+                    borderColor: activePartyIdx === i ? p.color : 'var(--border)',
+                    background: activePartyIdx === i ? `${p.color}18` : 'transparent',
+                    fontSize: 12,
+                  }}
+                >
+                  {p.name}
+                </button>
+              )
             ))}
             <button
               className="btn btn-ghost btn-sm"
@@ -940,6 +1028,7 @@ export default function FormBuilder() {
                 onSelectField={selectField}
                 onDeleteField={deleteField}
                 onStartDrag={startDragField}
+                onStartResize={startDragField}
               />
             </div>
           ))}
@@ -1001,7 +1090,7 @@ export default function FormBuilder() {
 function DocumentPage({
   pageIndex, imageUrl, width, height,
   fields, parties, selectedFieldIdx, activeTool,
-  pageRefs, onPageClick, onSelectField, onDeleteField, onStartDrag,
+  pageRefs, onPageClick, onSelectField, onDeleteField, onStartDrag, onStartResize,
 }) {
   const scale = DOC_WIDTH / width; // pixels per coordinate unit
   const displayW = width * scale;   // = DOC_WIDTH
@@ -1046,7 +1135,8 @@ function DocumentPage({
             parties={parties}
             onSelect={(e) => { e.stopPropagation(); onSelectField(idx); }}
             onDelete={(e) => { e.stopPropagation(); onDeleteField(idx); }}
-            onStartDrag={(e) => onStartDrag(e, idx)}
+            onStartDrag={(e, mode) => onStartDrag(e, idx, mode)}
+            onStartResize={(e, resizeMode) => onStartResize(e, idx, resizeMode)}
           />
         ) : null,
       )}
@@ -1059,7 +1149,7 @@ function DocumentPage({
 function BlankPage({
   width, height, pageIndex,
   fields, parties, selectedFieldIdx, activeTool,
-  pageRefs, onPageClick, onSelectField, onDeleteField, onStartDrag,
+  pageRefs, onPageClick, onSelectField, onDeleteField, onStartDrag, onStartResize,
 }) {
   const scale = DOC_WIDTH / width;
   const displayW = width * scale;
@@ -1103,7 +1193,8 @@ function BlankPage({
             parties={parties}
             onSelect={(e) => { e.stopPropagation(); onSelectField(idx); }}
             onDelete={(e) => { e.stopPropagation(); onDeleteField(idx); }}
-            onStartDrag={(e) => onStartDrag(e, idx)}
+            onStartDrag={(e, mode) => onStartDrag(e, idx, mode)}
+            onStartResize={(e, resizeMode) => onStartResize(e, idx, resizeMode)}
           />
         ) : null,
       )}
@@ -1113,19 +1204,37 @@ function BlankPage({
 
 // ─── FieldOverlay subcomponent ────────────────────────────────────────────────
 
-function FieldOverlay({ field, idx, scale, isSelected, parties, onSelect, onDelete, onStartDrag }) {
+function FieldOverlay({ field, idx, scale, isSelected, parties, onSelect, onDelete, onStartDrag, onStartResize }) {
   const color = partyColor(parties, field.party);
   const left = field.x * scale;
   const top = field.y * scale;
   const w = field.w * scale;
   const h = field.h * scale;
 
+  const HANDLE_SIZE = 8;
+  const handleBase = {
+    position: 'absolute',
+    width: HANDLE_SIZE,
+    height: HANDLE_SIZE,
+    background: color,
+    border: '1.5px solid white',
+    borderRadius: 2,
+    zIndex: 35,
+    boxSizing: 'border-box',
+  };
+  const resizeHandles = isSelected ? [
+    { mode: 'resize-nw', style: { top: -HANDLE_SIZE / 2, left: -HANDLE_SIZE / 2, cursor: 'nw-resize' } },
+    { mode: 'resize-ne', style: { top: -HANDLE_SIZE / 2, right: -HANDLE_SIZE / 2, cursor: 'ne-resize' } },
+    { mode: 'resize-sw', style: { bottom: -HANDLE_SIZE / 2, left: -HANDLE_SIZE / 2, cursor: 'sw-resize' } },
+    { mode: 'resize-se', style: { bottom: -HANDLE_SIZE / 2, right: -HANDLE_SIZE / 2, cursor: 'se-resize' } },
+  ] : [];
+
   return (
     <div
       onMouseDown={(e) => {
         if (e.button !== 0) return;
         onSelect(e);
-        onStartDrag(e, idx);
+        onStartDrag(e);
       }}
       onClick={onSelect}
       style={{
@@ -1152,6 +1261,16 @@ function FieldOverlay({ field, idx, scale, isSelected, parties, onSelect, onDele
         cursor: 'move',
       }}
     >
+      {resizeHandles.map(({ mode, style }) => (
+        <div
+          key={mode}
+          style={{ ...handleBase, ...style }}
+          onMouseDown={(e) => {
+            e.stopPropagation();
+            onStartResize(e, mode);
+          }}
+        />
+      ))}
       <span style={{ overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis', flex: 1, pointerEvents: 'none', fontSize: 10 }}>
         {field.label}
       </span>
@@ -1191,7 +1310,7 @@ function FieldOverlay({ field, idx, scale, isSelected, parties, onSelect, onDele
 
 function FieldInspector({ field, fields, selectedFieldIdx, parties, onChange, onDelete }) {
   const color = partyColor(parties, field.party);
-  const isSelect = ['dropdown', 'select'].includes(field.type);
+  const isSelect = ['dropdown', 'select', 'radio'].includes(field.type);
   const isSign = field.type === 'signature';
   const options = Array.isArray(field.options) && field.options.length
     ? field.options

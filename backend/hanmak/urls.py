@@ -90,7 +90,7 @@ from messaging.views import EmailMessageViewSet, EmailTemplateViewSet, ReminderS
 from oauth_apps.views import OAuthApplicationViewSet, OAuthGrantViewSet
 from risk.views import PolicyRuleViewSet, RiskFindingViewSet
 from search.views import GlobalSearchView, SearchIndexViewSet
-from signing.views import ConsentRecordViewSet, EnvelopeFieldValueViewSet, PublicSigningSessionView, SignatureViewSet, SigningSessionViewSet
+from signing.views import ConsentRecordViewSet, EnvelopeFieldValueViewSet, PublicSigningDownloadView, PublicSigningSessionView, SignatureViewSet, SigningSessionViewSet
 from tasks.views import TaskDefinitionViewSet, TaskRunEventViewSet, TaskRunViewSet
 from webhooks.views import EventOutboxViewSet, WebhookDeliveryViewSet, WebhookEndpointViewSet
 from workflow.views import WorkflowDefinitionViewSet, WorkflowEventViewSet, WorkflowRunViewSet, WorkflowStageViewSet
@@ -187,6 +187,7 @@ urlpatterns = [
     path('api/v1/inbox/', MyInboxView.as_view(), name='my-inbox'),
     path('api/v1/search/', GlobalSearchView.as_view(), name='global-search'),
     path('api/v1/sign/<str:token>/', PublicSigningSessionView.as_view(), name='public-signing-session'),
+    path('api/v1/sign/<str:token>/download/', PublicSigningDownloadView.as_view(), name='public-signing-download'),
     path('api/v1/analytics/completion/', CompletionAnalyticsView.as_view(), name='analytics-completion'),
     path('api/v1/analytics/template-usage/', TemplateUsageAnalyticsView.as_view(), name='analytics-template-usage'),
     path('api/v1/analytics/approval-bottlenecks/', ApprovalBottleneckAnalyticsView.as_view(), name='analytics-approval-bottlenecks'),

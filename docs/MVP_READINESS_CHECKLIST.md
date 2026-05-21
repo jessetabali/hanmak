@@ -6,7 +6,9 @@ Use this checklist before removing `hanmak_demo_mock_directory/` or inviting MVP
 
 - [x] Backend system check passes: `docker compose -f docker-compose.dev.yml exec -T backend python manage.py check`.
 - [x] Backend migrations are clean: `docker compose -f docker-compose.dev.yml exec -T backend python manage.py makemigrations --check --dry-run`.
+- [x] Full backend test suite passes (210 tests): `docker compose -f docker-compose.dev.yml exec -T backend python manage.py test --verbosity=1`.
 - [x] Tenant API suite passes: `docker compose -f docker-compose.dev.yml exec -T backend python manage.py test accounts.tests.TenantScopedAPITests`.
+- [x] Security hardening suite passes (throttle + headers, 8 tests): `docker compose -f docker-compose.dev.yml exec -T backend python manage.py test accounts.tests_security`.
 - [x] React lint gate runs and passes: `cd react-frontend && npm run lint`.
 - [x] React production build runs and passes: `cd react-frontend && npm run build`.
 - [x] Vanilla JS syntax check passes while the mock remains in the repo: `for f in hanmak_demo_mock_directory/*.js; do node --check "$f" || exit 1; done`.

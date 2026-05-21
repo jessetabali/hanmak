@@ -177,16 +177,27 @@ BACKEND_PORT=8010 docker compose -f docker-compose.dev.yml up --build
 
 ## Current Verification Checkpoint
 
-As of the latest cleanup pass:
+As of the latest pass (2026-05-21):
 
 ```bash
-cd backend
-.venv/bin/python manage.py check
-.venv/bin/python manage.py makemigrations --check --dry-run
-.venv/bin/python manage.py test accounts.tests.TenantScopedAPITests --keepdb
+docker compose -f docker-compose.dev.yml exec backend python manage.py check
+docker compose -f docker-compose.dev.yml exec backend python manage.py makemigrations --check --dry-run
+docker compose -f docker-compose.dev.yml exec backend python manage.py test --verbosity=1
 ```
 
-The tenant API test class is green: `91 tests OK`. The next planned checkpoint is Docker click-through QA through `http://127.0.0.1:8080/mock/`, covering every visible module/action against the Nginx-proxied stack.
+**210 tests OK** — covers `accounts`, `api_keys`, `approvals`, `auditlog`, `billing`, `compliance`, `documents`, `evidence`, `inbox`, `risk`, `tasks`, `workflow`, `analytics`, `signing`, and the security hardening suite (`accounts.tests_security`).
+
+Run only the security suite:
+
+```bash
+docker compose -f docker-compose.dev.yml exec backend python manage.py test accounts.tests_security --verbosity=2
+```
+
+Run only the tenant API suite:
+
+```bash
+docker compose -f docker-compose.dev.yml exec backend python manage.py test accounts.tests.TenantScopedAPITests --keepdb
+```
 
 2026-05-15 frontend live-data checkpoint:
 
@@ -204,6 +215,15 @@ The tenant API test class is green: `91 tests OK`. The next planned checkpoint i
 - Admin Users/Organizations expose super-admin cross-organization create/invite/create-organization/delete paths, and Branding applies logo/color changes immediately after saving.
 - Side-by-side frontend/backend hookup audit added at `docs/FRONTEND_BACKEND_HOOKUP_AUDIT.md`; remaining toast/copy actions are intentionally copy/info/no-file helpers or development-only placeholders blocked in beta mode.
 - Public signing/PDF placement pass: field serializers now declare the canonical page basis, signed PDFs scale filled values to the rendered page image, signer attachments are appended to signed artifacts, nav badges hydrate from live inbox/approval/task summaries, and Super Admin membership can manage billing/license records across organizations.
+
+2026-05-21 rate limiting & security hardening pass:
+
+- DRF throttle classes added in `accounts/throttles.py` — `LoginRateThrottle` (10/min), `TokenRefreshRateThrottle` (30/min), `PublicSigningRateThrottle` (30/min), `AccountSetupRateThrottle` (5/min), `PasswordResetRateThrottle` (5/min). All rates are overridable via env vars (see Production Hardening Checklist below).
+- Throttles applied: login/refresh token views, public signing GET/POST/download views, invitation accept/inspect, and password-reset request/complete actions.
+- Security headers enabled globally via Django's `SecurityMiddleware`: `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `X-XSS-Protection`, `HttpOnly` session cookie, `SameSite=Lax` session cookie.
+- `BasicAuthentication` removed from production — only loaded when `DEBUG=true`.
+- `PublicSigningSessionView` now returns `404` on unknown tokens instead of raising an unhandled `DoesNotExist`.
+- 8 security tests added in `accounts/tests_security.py` — all green.
 
 Recommended click-through order:
 
@@ -225,6 +245,16 @@ Recommended click-through order:
 - Configure durable media/object storage with the `AWS_*` variables or a compatible S3/MinIO endpoint.
 - Put TLS at the edge proxy/load balancer and keep Nginx security headers enabled.
 - Rotate SMTP, SSO, SCIM, storage, and database credentials outside the repository.
+- Tune rate limits via env vars (defaults shown — tighten for production):
+  ```text
+  THROTTLE_ANON=120/min
+  THROTTLE_USER=600/min
+  THROTTLE_LOGIN=10/min
+  THROTTLE_TOKEN_REFRESH=30/min
+  THROTTLE_PUBLIC_SIGNING=30/min
+  THROTTLE_ACCOUNT_SETUP=5/min
+  THROTTLE_PASSWORD_RESET=5/min
+  ```
 
 See `PLAN_ALIGNMENT.md` and `MOCK_ALIGNMENT.md` for what is implemented versus what remains placeholder/future work.
 

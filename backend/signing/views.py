@@ -6,6 +6,7 @@ from drf_spectacular.utils import extend_schema
 from rest_framework import decorators, parsers, permissions, response, status, views, viewsets
 
 from accounts.permissions import OrganizationScopedQuerySetMixin, feature_flag_allows
+from accounts.throttles import PublicSigningRateThrottle
 from approvals.models import ApprovalRequest
 from envelopes.models import Envelope, Recipient
 from messaging.services import queue_completion_emails, queue_envelope_invites
@@ -67,6 +68,7 @@ class EnvelopeFieldValueViewSet(OrganizationScopedQuerySetMixin, viewsets.ModelV
 
 class PublicSigningSessionView(views.APIView):
     permission_classes = [permissions.AllowAny]
+    throttle_classes = [PublicSigningRateThrottle]
     parser_classes = [parsers.JSONParser, parsers.MultiPartParser, parsers.FormParser]
     serializer_class = PublicSigningSessionSerializer
 
@@ -84,7 +86,10 @@ class PublicSigningSessionView(views.APIView):
 
     @extend_schema(responses=PublicSigningSessionSerializer)
     def get(self, request, token):
-        session = self.get_session(token)
+        try:
+            session = self.get_session(token)
+        except SigningSession.DoesNotExist:
+            return response.Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
         gated = self._feature_gate_response(session)
         if gated:
             return gated
@@ -103,7 +108,10 @@ class PublicSigningSessionView(views.APIView):
 
     @extend_schema(request=dict, responses=PublicSigningSessionSerializer)
     def post(self, request, token):
-        session = self.get_session(token)
+        try:
+            session = self.get_session(token)
+        except SigningSession.DoesNotExist:
+            return response.Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
         gated = self._feature_gate_response(session)
         if gated:
             return gated
@@ -301,3 +309,37 @@ class PublicSigningSessionView(views.APIView):
 
     def _attachment_for_field(self, request, field_key):
         return request.FILES.get(f'attachment__{field_key}') or request.FILES.get(field_key)
+
+
+class PublicSigningDownloadView(views.APIView):
+    """Public signed-PDF download — authenticated only by the signing token."""
+    permission_classes = [permissions.AllowAny]
+    throttle_classes = [PublicSigningRateThrottle]
+
+    def get(self, request, token):
+        try:
+            session = (
+                SigningSession.objects
+                .select_related('envelope', 'recipient')
+                .get(token=token)
+            )
+        except SigningSession.DoesNotExist:
+            return response.Response({'detail': 'Not found.'}, status=status.HTTP_404_NOT_FOUND)
+
+        envelope = session.envelope
+        if envelope.status not in [envelope.Status.COMPLETED, envelope.Status.PARTIALLY_SIGNED]:
+            return response.Response(
+                {'detail': 'Signed PDF is only available for completed envelopes.'},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        from django.http import HttpResponse
+        from evidence.pdf import build_signed_pdf
+        try:
+            pdf_bytes, _ = build_signed_pdf(envelope)
+        except Exception as exc:
+            return response.Response({'detail': f'PDF generation failed: {exc}'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        resp = HttpResponse(pdf_bytes, content_type='application/pdf')
+        resp['Content-Disposition'] = f'attachment; filename="signed-{envelope.id}.pdf"'
+        return resp

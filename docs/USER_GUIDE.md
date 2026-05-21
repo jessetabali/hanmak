@@ -133,7 +133,11 @@ Typical flow:
 7. Save the template.
 
 Field placement is page-aware. Dragged and resized fields are kept inside the current page, and saved templates preserve the page size plus normalized coordinates so envelopes and public signing links render the fields in the same location. HanMak renders stored page previews on a fixed 1040px-wide coordinate basis; A4-style fallback pages are about 1471px tall, while uploaded pages keep their aspect ratio. Each field stores the exact page width and height basis used when it was placed, so downloaded signed PDFs use the same placement basis as the browser preview.
-Use **Preview** in the Form Builder toolbar to open a signer-style preview of the current unsaved field layout, including date picker, dropdown, signature, initials, checkbox, and attachment controls.
+Use **Preview** in the Form Builder toolbar to open a signer-style preview of the current unsaved field layout, including date picker, dropdown, radio group, signature, initials, checkbox, and attachment controls.
+
+**Resizing fields:** Click a field to select it, then drag any of the four corner handles (square dots at the corners) to resize it. The opposite corner stays pinned.
+
+**Renaming parties:** Double-click a party tab (e.g. "Party 1") in the top bar to rename it inline. Press Enter or click away to confirm; press Escape to cancel. Custom party names are saved with the template and reflected in envelope creation (e.g. "Buyer", "Seller").
 
 Supported field types include:
 
@@ -143,6 +147,7 @@ Supported field types include:
 - Email
 - Date picker
 - Dropdown/select
+- Radio Group (multiple-choice; options are configurable in the inspector)
 - Checkbox
 - Signature
 - Initials
@@ -152,6 +157,8 @@ Attachment fields let a signer upload a file during signing. After submission, t
 Signature fields follow the allowed methods chosen in Form Builder, so a signer only sees the typed, drawn, or uploaded-image options that were enabled on the template field.
 
 Template actions include editing metadata, opening the Form Builder, creating an envelope from a template, duplicating a template, archiving, activating, deleting from the row or details modal, and quick setup for templates that do not yet have a document/version.
+
+> **How it works under the hood:** For a full technical explanation of how template creation, versioning, field geometry normalization, and envelope creation from a template work end-to-end, see `docs/HOW_IT_WORKS.md` — Section 1.
 
 ## 4.1 File Library
 
@@ -207,7 +214,13 @@ Filled fields lose their editable outline once completed. After submission, late
 
 Each signer can only fill fields assigned to them or shared/unassigned fields. A signer cannot fill another recipient's fields unless the task has been delegated.
 
+Multi-page documents render all pages in the signing view. If backend page images are unavailable, the signing page falls back to client-side PDF rendering using pdfjs-dist so all pages are always visible.
+
+After completing a signing task, the link remains viewable: it shows the read-only signed document with all filled fields overlaid and a **Download Signed PDF** button regardless of whether other signers have finished. The download button is also shown when revisiting a completed link.
+
 Declining a signing task marks the envelope declined and revokes other open signer links for that envelope.
+
+> **How it works under the hood:** For a full technical explanation of session validation, signature capture methods, field value submission, routing-order sequencing, consent records, PDF generation paths, and the decline/delegate flows, see `docs/HOW_IT_WORKS.md` — Section 2.
 
 ## 7. Workflow Builder
 
@@ -226,6 +239,8 @@ Capabilities:
 - View workflow events.
 
 Workflows must have at least one stage before activation.
+
+> **How it works under the hood:** For the full technical explanation of the Workflow Builder data model, API endpoints, stage types, advance mechanics, validation rules, and how Workflow Builder relates to Templates and Envelopes, see `docs/HOW_IT_WORKS.md` — Sections 6 and 7.
 
 ## 8. Approval Queue
 

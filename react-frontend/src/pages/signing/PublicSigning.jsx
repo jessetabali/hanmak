@@ -35,6 +35,53 @@ function ensureFonts() {
   document.head.appendChild(link);
 }
 
+// ─── Signature value helpers ─────────────────────────────────────────────────
+
+/**
+ * Parse a serialised typed-signature value: "[TYPED:name|font|color]"
+ * Returns { name, font, color } or null if the value isn't in that format.
+ */
+function parseTypedSig(val) {
+  if (!val || typeof val !== 'string') return null;
+  const m = val.match(/^\[TYPED:(.+)\|(.+)\|(.+)\]$/);
+  return m ? { name: m[1], font: m[2], color: m[3] } : null;
+}
+
+/**
+ * Render a stored field value visually.
+ * - Typed signatures   → styled cursive text
+ * - Drawn / uploaded   → <img> (value is a data URL)
+ * - Checkbox           → ✓ / empty
+ * - Everything else    → plain string
+ */
+function FieldValueDisplay({ value, fieldType, heightPx, style = {} }) {
+  if (!value && value !== 0) return null;
+  const typedSig = parseTypedSig(value);
+  if (typedSig) {
+    return (
+      <span style={{
+        fontFamily: `'${typedSig.font}', cursive`,
+        fontSize: Math.max(11, (heightPx || 32) * 0.52),
+        color: typedSig.color || '#0f172a',
+        whiteSpace: 'nowrap',
+        overflow: 'hidden',
+        display: 'block',
+        ...style,
+      }}>
+        {typedSig.name}
+      </span>
+    );
+  }
+  const isDataUrl = typeof value === 'string' && value.startsWith('data:image/');
+  if (isDataUrl) {
+    return <img src={value} alt="Signature" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', display: 'block', ...style }} />;
+  }
+  if (fieldType === 'checkbox') {
+    return <span style={style}>{String(value).toLowerCase() === 'true' ? '✓' : ''}</span>;
+  }
+  return <span style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', ...style }}>{String(value)}</span>;
+}
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export default function PublicSigning() {
@@ -70,6 +117,8 @@ export default function PublicSigning() {
   const [activeFieldId, setActiveFieldId] = useState(null);
   const [signatureModalOpen, setSignatureModalOpen] = useState(false);
   const [signatureModalFieldId, setSignatureModalFieldId] = useState(null);
+  // Client-side pdfjs rendered page images keyed by `${docId}-${pageNum}`
+  const [clientPageImages, setClientPageImages] = useState({});
 
   // Canvas drawing
   const canvasRef = useRef(null);
@@ -83,6 +132,7 @@ export default function PublicSigning() {
 
   // Pages live at session.documents[].document_detail.pages[] (from EnvelopeDocumentSerializer).
   // Collect all pages across all documents in attachment order, then page order.
+  // _docId and _fileUrl are injected so the pdfjs fallback renderer knows which file to fetch.
   const pages = (() => {
     if (session?.documents?.length) {
       return session.documents
@@ -91,12 +141,69 @@ export default function PublicSigning() {
         .flatMap((d) =>
           (d.document_detail?.pages ?? [])
             .slice()
-            .sort((a, b) => a.page_number - b.page_number),
+            .sort((a, b) => a.page_number - b.page_number)
+            .map((p) => ({ ...p, _docId: d.document_detail?.id, _fileUrl: d.document_detail?.file_url })),
         );
     }
-    // Fallback paths for older response shapes
     return session?.pages ?? session?.document?.pages ?? [];
   })();
+
+  // ── pdfjs fallback: render pages client-side when backend images are missing ──
+  useEffect(() => {
+    if (!session?.documents?.length) return;
+    const docsNeedingRender = session.documents.filter((d) =>
+      d.document_detail?.file_url &&
+      (d.document_detail?.pages ?? []).some((p) => !p.image_url),
+    );
+    if (!docsNeedingRender.length) return;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const pdfjsLib = await import('pdfjs-dist');
+        pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
+          'pdfjs-dist/build/pdf.worker.min.mjs',
+          import.meta.url,
+        ).href;
+
+        const newImages = {};
+        for (const d of docsNeedingRender) {
+          if (cancelled) break;
+          try {
+            const resp = await fetch(d.document_detail.file_url);
+            const buffer = await resp.arrayBuffer();
+            const pdf = await pdfjsLib.getDocument({ data: buffer }).promise;
+            for (let i = 1; i <= pdf.numPages; i++) {
+              if (cancelled) break;
+              const pdfPage = await pdf.getPage(i);
+              const baseVp = pdfPage.getViewport({ scale: 1 });
+              const scale = DOC_WIDTH / baseVp.width;
+              const vp = pdfPage.getViewport({ scale });
+              const canvas = document.createElement('canvas');
+              canvas.width = Math.round(vp.width);
+              canvas.height = Math.round(vp.height);
+              await pdfPage.render({ canvasContext: canvas.getContext('2d'), viewport: vp }).promise;
+              newImages[`${d.document_detail.id}-${i}`] = canvas.toDataURL('image/png');
+            }
+          } catch (err) {
+            console.warn('pdfjs fallback failed for doc', d.document_detail?.id, err);
+          }
+        }
+        if (!cancelled) setClientPageImages((prev) => ({ ...prev, ...newImages }));
+      } catch (err) {
+        console.warn('pdfjs import failed', err);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [session?.documents]);
+
+  // Merge client-rendered images into page objects where backend images are absent
+  const augmentedPages = pages.map((p) => {
+    if (p.image_url) return p;
+    const key = `${p._docId}-${p.page_number}`;
+    const clientUrl = clientPageImages[key];
+    return clientUrl ? { ...p, image_url: clientUrl } : p;
+  });
 
   const envelopeName = session?.envelope_subject || session?.envelope_name || 'Document Signing';
   const signerName = session?.signer_name || session?.recipient_name || '';
@@ -242,18 +349,26 @@ export default function PublicSigning() {
     if (!allFilled) return;
     setSubmitting(true);
     try {
+      // Collect any File objects from attachment fields before serialisation
+      const attachmentFiles = {};  // { field_key: File }
+
       // Map id-keyed fieldValues to [{field_key, value}] array the backend expects
       const fieldValuesArr = Object.entries(fieldValues).map(([idStr, val]) => {
         const field = fields.find((f) => String(f.id) === String(idStr));
+        const fieldKey = field?.field_key || idStr;
         let serializedVal;
-        if (val && typeof val === 'object' && val.type) {
+        if (val instanceof File) {
+          // File object → goes to FormData; send empty string as the value placeholder
+          attachmentFiles[fieldKey] = val;
+          serializedVal = '';
+        } else if (val && typeof val === 'object' && val.type) {
           serializedVal = val.type === 'typed'
             ? `[TYPED:${val.name}|${val.font}|${val.color}]`
             : val.dataUrl || '';
         } else {
           serializedVal = val ?? '';
         }
-        return { field_key: field?.field_key || idStr, value: serializedVal };
+        return { field_key: fieldKey, value: serializedVal };
       });
 
       // Map frontend tab name to backend signature_type enum
@@ -266,10 +381,26 @@ export default function PublicSigning() {
           }
         : null;
 
-      await apiClient.post(EP.SIGN_SUBMIT(token), {
+      const jsonBody = {
         field_values: fieldValuesArr,
         ...(sigPayload ? { signature: sigPayload } : {}),
-      });
+      };
+
+      if (Object.keys(attachmentFiles).length > 0) {
+        // At least one attachment — submit as multipart/form-data.
+        // Backend reads JSON from a `payload` field; files from `attachment__<field_key>`.
+        const formData = new FormData();
+        formData.append('payload', JSON.stringify(jsonBody));
+        Object.entries(attachmentFiles).forEach(([key, file]) => {
+          formData.append(`attachment__${key}`, file, file.name);
+        });
+        await apiClient.post(EP.SIGN_SUBMIT(token), formData, {
+          headers: { 'Content-Type': 'multipart/form-data' },
+        });
+      } else {
+        await apiClient.post(EP.SIGN_SUBMIT(token), jsonBody);
+      }
+
       setSubmitted(true);
     } catch (err) {
       console.error('Submit error', err);
@@ -370,39 +501,162 @@ export default function PublicSigning() {
   }
 
   // ── Render: submitted / completed ─────────────────────────────────────────
-  if (submitted || session?.status === 'completed') {
+  const isAlreadyDone = submitted || session?.is_completed || session?.status === 'submitted';
+  if (isAlreadyDone) {
+    const completedPages = augmentedPages;
+    // All fields (every party) with geometry — use all_fields if available, fall back to fields
+    const allFieldsForReview = session?.all_fields || session?.fields || fields;
+    // All submitted values keyed by field_key for quick lookup
+    const submittedValues = session?.field_values || [];
+    // Attachment field values that have files attached
+    const attachmentValues = submittedValues.filter(v => v.attachment_url);
+
+    const handleDownloadSigned = async () => {
+      try {
+        const res = await apiClient.get(EP.SIGN_DOWNLOAD(token), { responseType: 'blob' });
+        const url = URL.createObjectURL(res.data);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `signed-document.pdf`;
+        a.click();
+        URL.revokeObjectURL(url);
+      } catch {
+        alert('Download failed — the signed PDF may not be ready yet. Please try again shortly.');
+      }
+    };
+
     return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', flexDirection: 'column', gap: 12 }}>
-        <div style={{ fontSize: '3rem' }}>✅</div>
-        <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--success, #16a34a)' }}>
-          {submitted ? 'Document Signed Successfully' : 'Signing Complete'}
-        </div>
-        <div style={{ fontSize: 14, color: 'var(--text-muted)', maxWidth: 440, textAlign: 'center' }}>
-          {submitted
-            ? 'Thank you! Your signature has been recorded. You will receive a copy via email once all parties have signed.'
-            : 'This document has already been completed.'}
-        </div>
-        {/* Read-only field summary */}
-        {submitted && Object.keys(fieldValues).length > 0 && (
-          <div style={{ marginTop: 16, maxWidth: 480, width: '100%' }}>
-            <div style={{ fontWeight: 600, marginBottom: 8, fontSize: 13 }}>Submitted values:</div>
-            {fields.map((f) => {
-              const val = fieldValues[f.id];
-              if (!val) return null;
-              const display = typeof val === 'object' && val.type === 'typed'
-                ? `[Signature: ${val.name}]`
-                : typeof val === 'object' && val.type
-                ? `[${val.type} signature]`
-                : String(val);
-              return (
-                <div key={f.id} style={{ display: 'flex', gap: 8, fontSize: 13, padding: '4px 0', borderBottom: '1px solid var(--border)' }}>
-                  <span style={{ color: 'var(--text-muted)', minWidth: 120 }}>{f.label}:</span>
-                  <span style={{ fontWeight: 500 }}>{display}</span>
-                </div>
-              );
-            })}
+      <div style={{ minHeight: '100vh', background: '#f1f5f9' }}>
+        {/* Banner */}
+        <div style={{
+          background: 'white',
+          borderBottom: '1px solid var(--border)',
+          padding: '12px 24px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 16,
+          position: 'sticky',
+          top: 0,
+          zIndex: 50,
+          boxShadow: '0 1px 4px rgba(0,0,0,0.08)',
+        }}>
+          <span style={{ fontWeight: 800, fontSize: 17, color: 'var(--primary, #2563eb)' }}>HanMak</span>
+          <span style={{ fontSize: 24 }}>✅</span>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--success, #16a34a)' }}>
+              {submitted ? 'Document Signed Successfully' : 'This document is already signed'}
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+              {submitted
+                ? 'Your signature has been recorded. You will receive a copy by email once all parties have signed.'
+                : 'This signing task has already been completed.'}
+            </div>
           </div>
-        )}
+          <button
+            className="btn btn-primary btn-sm"
+            onClick={handleDownloadSigned}
+          >
+            ⬇ Download Signed PDF
+          </button>
+        </div>
+
+        {/* Read-only document view with all submitted field values overlaid */}
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '24px 24px', gap: 20 }}>
+          {completedPages.length === 0 && (
+            <div style={{ color: 'var(--text-muted)', fontSize: 14, padding: 40 }}>Document preview not available.</div>
+          )}
+          {completedPages.map((page, pageIndex) => {
+            const pageW = page.width || DOC_WIDTH;
+            const pageH = page.height || 1471;
+            const scale = DOC_WIDTH / pageW;
+            const displayH = pageH * scale;
+            // Show ALL fields (every party) on this page in the review view
+            const pageFields = allFieldsForReview.filter(
+              (f) => (f.page != null ? Number(f.page) - 1 : f.pageIndex ?? 0) === pageIndex,
+            );
+            return (
+              <div key={pageIndex} style={{ position: 'relative', width: DOC_WIDTH, height: displayH, background: 'white', boxShadow: '0 4px 24px rgba(0,0,0,0.12)', flexShrink: 0 }}>
+                {page.image_url && (
+                  <img src={page.image_url} alt={`Page ${pageIndex + 1}`} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', display: 'block', pointerEvents: 'none' }} />
+                )}
+                {pageFields.map((f) => {
+                  const fVal = submittedValues.find((v) => v.field_key === f.field_key || v.field === f.id);
+                  const displayVal = fVal?.value ?? '';
+                  const fx = (f.x ?? 0) * scale;
+                  const fy = (f.y ?? 0) * scale;
+                  const fw = (f.width ?? f.w ?? 160) * scale;
+                  const fh = (f.height ?? f.h ?? 32) * scale;
+                  const isSig = ['signature', 'initials'].includes(f.field_type || f.type);
+                  return (
+                    <div key={f.id} style={{
+                      position: 'absolute', left: fx, top: fy, width: fw, height: fh,
+                      background: displayVal ? (isSig ? 'rgba(22,163,74,0.06)' : 'rgba(37,99,235,0.06)') : 'rgba(37,99,235,0.04)',
+                      border: `1px solid ${displayVal ? (isSig ? 'rgba(22,163,74,0.3)' : 'rgba(37,99,235,0.2)') : 'rgba(37,99,235,0.15)'}`,
+                      borderRadius: 3, boxSizing: 'border-box', display: 'flex',
+                      alignItems: 'center', justifyContent: isSig ? 'flex-start' : 'flex-start',
+                      padding: '2px 6px', overflow: 'hidden',
+                    }}>
+                      {displayVal
+                        ? <FieldValueDisplay value={displayVal} fieldType={f.field_type || f.type} heightPx={fh} />
+                        : <span style={{ opacity: 0.3, fontSize: Math.max(9, fh * 0.38), color: '#1e40af' }}>{f.label || f.field_type}</span>
+                      }
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })}
+
+          {/* ── Attachment section ── */}
+          {attachmentValues.length > 0 && (
+            <div style={{ width: DOC_WIDTH, background: 'white', boxShadow: '0 4px 24px rgba(0,0,0,0.12)', borderRadius: 4, padding: '20px 24px' }}>
+              <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 16, color: '#0f172a', borderBottom: '1px solid var(--border)', paddingBottom: 8 }}>
+                📎 Signer Attachments ({attachmentValues.length})
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                {attachmentValues.map((v, i) => {
+                  const filename = v.metadata?.filename || v.value || `Attachment ${i + 1}`;
+                  const ct = (v.metadata?.content_type || '').toLowerCase();
+                  const isImage = ct.startsWith('image/') || /\.(png|jpg|jpeg|gif|webp)$/i.test(filename);
+                  const isPdf = ct === 'application/pdf' || /\.pdf$/i.test(filename);
+                  return (
+                    <div key={v.id || i} style={{ border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
+                      <div style={{ padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 12, background: '#f8fafc' }}>
+                        <span style={{ fontSize: '1.5rem' }}>{isImage ? '🖼' : isPdf ? '📄' : '📎'}</span>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontWeight: 600, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{filename}</div>
+                          {v.metadata?.size && (
+                            <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                              {(v.metadata.size / 1024).toFixed(1)} KB · {v.metadata.content_type || ''}
+                            </div>
+                          )}
+                        </div>
+                        <a
+                          href={v.attachment_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="btn btn-ghost btn-sm"
+                          style={{ flexShrink: 0 }}
+                        >
+                          ⬇ Download
+                        </a>
+                      </div>
+                      {isImage && (
+                        <div style={{ padding: '0 16px 16px', background: '#f8fafc' }}>
+                          <img
+                            src={v.attachment_url}
+                            alt={filename}
+                            style={{ maxWidth: '100%', maxHeight: 320, objectFit: 'contain', display: 'block', borderRadius: 4, border: '1px solid var(--border)' }}
+                          />
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
       </div>
     );
   }
@@ -470,7 +724,7 @@ export default function PublicSigning() {
           padding: 24,
           gap: 20,
         }}>
-          {pages.length === 0 && (
+          {augmentedPages.length === 0 && (
             <div style={{
               width: DOC_WIDTH,
               minHeight: 400,
@@ -492,12 +746,14 @@ export default function PublicSigning() {
             </div>
           )}
 
-          {pages.map((page, pageIndex) => (
+          {augmentedPages.map((page, pageIndex) => (
             <DocumentSigningPage
               key={pageIndex}
               page={page}
               pageIndex={pageIndex}
               fields={fields}
+              allFields={session?.all_fields || []}
+              submittedValues={session?.field_values || []}
               fieldValues={fieldValues}
               activeFieldId={activeFieldId}
               onFieldClick={(fid) => {
@@ -976,7 +1232,7 @@ export default function PublicSigning() {
 
 // ─── DocumentSigningPage ──────────────────────────────────────────────────────
 
-function DocumentSigningPage({ page, pageIndex, fields, fieldValues, activeFieldId, onFieldClick }) {
+function DocumentSigningPage({ page, pageIndex, fields, allFields, submittedValues, fieldValues, activeFieldId, onFieldClick }) {
   const imgUrl = page.image_url || page.url || '';
   const imgW = page.width || DOC_WIDTH;
   const imgH = page.height || 1471;
@@ -984,9 +1240,20 @@ function DocumentSigningPage({ page, pageIndex, fields, fieldValues, activeField
   const displayW = imgW * scale;
   const displayH = imgH * scale;
 
+  // My interactive fields on this page
+  const myFieldIds = new Set(fields.map((f) => f.id));
   const pageFields = fields.filter(
     (f) => (f.page != null ? Number(f.page) - 1 === pageIndex : f.page_index === pageIndex || f.pageIndex === pageIndex),
   );
+
+  // Other parties' completed fields on this page — only those that have a submitted value
+  const otherCompletedFields = (allFields || []).filter((f) => {
+    if (myFieldIds.has(f.id)) return false;
+    const onPage = f.page != null ? Number(f.page) - 1 === pageIndex : false;
+    if (!onPage) return false;
+    const submitted = (submittedValues || []).find((v) => v.field_key === f.field_key || v.field === f.id);
+    return submitted && submitted.value;
+  });
 
   return (
     <div style={{ position: 'relative' }}>
@@ -1001,6 +1268,33 @@ function DocumentSigningPage({ page, pageIndex, fields, fieldValues, activeField
             style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', display: 'block', pointerEvents: 'none', userSelect: 'none' }}
           />
         )}
+        {/* Read-only overlays for other parties' already-submitted fields */}
+        {otherCompletedFields.map((f) => {
+          const submitted = (submittedValues || []).find((v) => v.field_key === f.field_key || v.field === f.id);
+          const val = submitted?.value || '';
+          const fx = (f.x ?? 0) * scale;
+          const fy = (f.y ?? 0) * scale;
+          const fw = (f.width ?? 160) * scale;
+          const fh = (f.height ?? 32) * scale;
+          const isSig = ['signature', 'initials'].includes(f.field_type || f.type);
+          return (
+            <div
+              key={`completed-${f.id}`}
+              title={`${f.label || f.field_type} — completed by another party`}
+              style={{
+                position: 'absolute', left: fx, top: fy, width: fw, height: fh,
+                background: isSig ? 'rgba(22,163,74,0.06)' : 'rgba(71,85,105,0.05)',
+                border: `1px solid ${isSig ? 'rgba(22,163,74,0.25)' : 'rgba(71,85,105,0.18)'}`,
+                borderRadius: 3, boxSizing: 'border-box',
+                display: 'flex', alignItems: 'center', padding: '2px 5px',
+                overflow: 'hidden', zIndex: 5, pointerEvents: 'none',
+              }}
+            >
+              <FieldValueDisplay value={val} fieldType={f.field_type || f.type} heightPx={fh} />
+            </div>
+          );
+        })}
+        {/* Interactive fields for the current signer */}
         {pageFields.map((field) => (
           <SigningFieldOverlay
             key={field.id}
@@ -1224,11 +1518,13 @@ function FieldInput({ field, value, isActive, onClick, onChange, onOpenSig }) {
             style={{ fontSize: 12 }}
             onChange={(e) => {
               const file = e.target.files[0];
-              if (file) onChange(file.name);
+              if (file) onChange(file);  // store the File object so FormData can include it
             }}
           />
           {value && (
-            <div style={{ fontSize: 11, color: '#16a34a', marginTop: 4 }}>✓ {value}</div>
+            <div style={{ fontSize: 11, color: '#16a34a', marginTop: 4 }}>
+              ✓ {value instanceof File ? value.name : value}
+            </div>
           )}
         </div>
       )}

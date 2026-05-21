@@ -17,6 +17,7 @@ class PublicSigningSessionSerializer(SigningSessionSerializer):
     envelope_detail = EnvelopeSerializer(source='envelope', read_only=True)
     recipient_detail = RecipientSerializer(source='recipient', read_only=True)
     fields = serializers.SerializerMethodField(method_name='get_signing_fields')
+    all_fields = serializers.SerializerMethodField()
     documents = serializers.SerializerMethodField()
     field_values = serializers.SerializerMethodField()
     is_completed = serializers.SerializerMethodField()
@@ -24,8 +25,8 @@ class PublicSigningSessionSerializer(SigningSessionSerializer):
 
     class Meta(SigningSessionSerializer.Meta):
         fields = SigningSessionSerializer.Meta.fields + [
-            'envelope_detail', 'recipient_detail', 'fields', 'documents', 'field_values',
-            'is_completed', 'readonly_reason',
+            'envelope_detail', 'recipient_detail', 'fields', 'all_fields', 'documents',
+            'field_values', 'is_completed', 'readonly_reason',
         ]
 
     def session_is_completed(self, obj):
@@ -46,8 +47,16 @@ class PublicSigningSessionSerializer(SigningSessionSerializer):
         return ''
 
     def get_signing_fields(self, obj):
+        """Fields that belong to the current recipient (or are unassigned) — rendered as interactive controls."""
         queryset = obj.envelope.fields.filter(recipient__isnull=True) | obj.envelope.fields.filter(recipient=obj.recipient)
         return FormFieldSerializer(queryset.distinct().order_by('page', 'y', 'x', 'id'), many=True, context=self.context).data
+
+    def get_all_fields(self, obj):
+        """ALL fields on the envelope across every party, including other recipients'.
+        The frontend uses this to render previously-submitted values from other
+        parties as read-only overlays while the current signer is reviewing/signing."""
+        queryset = obj.envelope.fields.all()
+        return FormFieldSerializer(queryset.order_by('page', 'y', 'x', 'id'), many=True, context=self.context).data
 
     def get_documents(self, obj):
         queryset = obj.envelope.envelope_documents.select_related('document').order_by('order')

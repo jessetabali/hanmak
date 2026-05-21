@@ -68,6 +68,7 @@ class TemplateSetupSerializer(serializers.Serializer):
     document = serializers.IntegerField()
     fields = serializers.ListField(child=serializers.DictField(), required=False)
     changelog = serializers.CharField(required=False, allow_blank=True)
+    parties = serializers.ListField(child=serializers.DictField(), required=False, default=list)
 
 
 class TemplateEnvelopeRecipientSerializer(serializers.Serializer):

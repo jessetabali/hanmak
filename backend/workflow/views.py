@@ -127,6 +127,24 @@ class WorkflowRunViewSet(OrganizationScopedQuerySetMixin, viewsets.ModelViewSet)
     permission_classes = [OrganizationRolePermission]
     write_roles = [Membership.Role.ADMIN, Membership.Role.MANAGER]
 
+    def perform_create(self, serializer):
+        run = serializer.save()
+        # Immediately place the run on the first stage so it is never in the
+        # contradictory "running but no stage" state that shows as "Not started".
+        stages = list(run.workflow.stages.order_by('order')) if run.workflow else []
+        if stages:
+            run.current_stage_key = stages[0].key
+            run.save(update_fields=['current_stage_key'])
+            WorkflowEvent.objects.create(
+                run=run,
+                envelope=run.envelope,
+                event_type='workflow.started',
+                stage_key=stages[0].key,
+                actor=self.request.user if self.request.user.is_authenticated else None,
+                message=f'Workflow run started — initial stage: {stages[0].label}.',
+                metadata={},
+            )
+
     @decorators.action(detail=True, methods=['post'])
     def advance(self, request, pk=None):
         run = self.get_object()

@@ -44,6 +44,7 @@ from .passkeys import (
     stored_attested_credentials,
 )
 from .permissions import OrganizationRolePermission, OrganizationScopedQuerySetMixin, feature_flag_allows, feature_flag_allows_request, user_has_org_role, user_organization_ids
+from .throttles import AccountSetupRateThrottle, PasswordResetRateThrottle
 from .serializers import (
     CreateManagedUserSerializer,
     InvitationSerializer,
@@ -768,6 +769,11 @@ class InvitationViewSet(OrganizationScopedQuerySetMixin, viewsets.ModelViewSet):
             return [permissions.AllowAny()]
         return super().get_permissions()
 
+    def get_throttles(self):
+        if self.action in ['accept', 'inspect_token']:
+            return [AccountSetupRateThrottle()]
+        return super().get_throttles()
+
     def create(self, request, *args, **kwargs):
         result = super().create(request, *args, **kwargs)
         if getattr(self, '_created_invite_token', ''):
@@ -1389,6 +1395,11 @@ class AccountRecoveryRequestViewSet(viewsets.ModelViewSet):
         if self.action in ['request_reset', 'inspect_token', 'complete']:
             return [permissions.AllowAny()]
         return super().get_permissions()
+
+    def get_throttles(self):
+        if self.action in ['request_reset', 'complete']:
+            return [PasswordResetRateThrottle()]
+        return super().get_throttles()
 
     def get_queryset(self):
         queryset = super().get_queryset()

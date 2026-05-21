@@ -205,7 +205,7 @@ All 44 pages are fully implemented and wired to the live Django/DRF backend. The
 - [x] `EnvelopeList` — search, filter, sort, pagination, bulk actions, drawer with document thumbnails, preview modal
 - [x] `EnvelopeDetail` — recipients, attachments, send/void/download (blob auth pattern)
 - [x] `TemplateList` — archive/activate/duplicate/use, document preview modal
-- [x] `FormBuilder` — drag-and-drop field placement canvas
+- [x] `FormBuilder` — drag-and-drop field placement canvas; corner resize handles; radio group field type; inline party rename
 - [x] `PublicSigning` — field rendering, typed/drawn/uploaded signatures, submit/decline
 
 ### Phase 2 — Collaboration & Approvals ✓
@@ -236,6 +236,16 @@ All 44 pages are fully implemented and wired to the live Django/DRF backend. The
 - [x] Full compliance pages with live API data and create/delete flows
 - [x] `Billing` — subscription banner, usage bars, invoice history
 - [x] `License` — key details, feature entitlements, activation
+
+---
+
+## FormBuilder Enhancements (2026-05-20)
+
+| Enhancement | Detail |
+|---|---|
+| Resizable field boxes | Corner drag handles (NW/NE/SW/SE) appear on selected fields. Drag a corner to resize; opposite corner stays pinned. Minimum size: 40 px wide × 18 px tall. |
+| Radio Group field type | `◉ Radio Group` added to the Selection palette. Defaults to 160×80 px. The inspector shows the same options editor as Dropdown. |
+| Party name rename | Double-click any party tab to edit the name inline. Press Enter or click away to save; Escape cancels. |
 
 ---
 
@@ -290,6 +300,36 @@ The previously tracked UI parity gaps from `hanmak_demo_mock_directory/` have be
 See `docs/MVP_READINESS_CHECKLIST.md` for the final automated and manual gates before removing the vanilla JS mock.
 
 ---
+
+## Bundle Splitting (2026-05-21)
+
+`router.jsx` wraps every page component in `React.lazy()` so routes are loaded on demand. `vite.config.js` uses `manualChunks` to extract stable vendor libraries into separately cacheable files:
+
+| Chunk | Contents | Approx size |
+|---|---|---|
+| App shell (initial) | `main.jsx`, `App.jsx`, `router.jsx`, layout components | ~39 kB |
+| `vendor-react` | `react`, `react-dom`, `react-router-dom` | ~200 kB |
+| `vendor-query` | `@tanstack/react-query` | ~49 kB |
+| `vendor-axios` | `axios` | ~42 kB |
+| `pdfjs` (lazy) | `pdfjs-dist` — loaded only when FormBuilder or PublicSigning opens a PDF | ~458 kB |
+| Per-route chunks | One chunk per lazy-loaded page | varies |
+
+This reduces initial load from ~1.4 MB to ~39 kB shell + vendor chunks, with the 458 kB PDF renderer deferred until needed. Vendor chunks are content-addressed and cache across deploys as long as library versions don't change.
+
+```js
+// vite.config.js (relevant excerpt)
+build: {
+  rollupOptions: {
+    output: {
+      manualChunks: {
+        'vendor-react': ['react', 'react-dom', 'react-router-dom'],
+        'vendor-query': ['@tanstack/react-query'],
+        'vendor-axios': ['axios'],
+      },
+    },
+  },
+},
+```
 
 ## Production Build and Deployment
 

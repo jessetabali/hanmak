@@ -1,5 +1,5 @@
 from django.http import HttpResponse
-from django.db.models import Count, Q
+from django.db.models import Count, Prefetch, Q
 from django.utils import timezone
 from rest_framework import serializers
 from rest_framework import decorators, permissions, response, status, viewsets
@@ -34,7 +34,13 @@ from .services import create_envelope_from_template, setup_template_version
 class TemplateViewSet(OrganizationScopedQuerySetMixin, viewsets.ModelViewSet):
     feature_flag_key = 'template_library'
     write_roles = OrganizationRolePermission.write_roles
-    queryset = Template.objects.select_related('organization', 'created_by').prefetch_related('fields').all().order_by('-updated_at')
+    queryset = Template.objects.select_related('organization', 'created_by').prefetch_related(
+        Prefetch(
+            'versions',
+            queryset=TemplateVersion.objects.select_related('document').prefetch_related('parties', 'fields').order_by('-version_number'),
+        ),
+        'fields',
+    ).all().order_by('-updated_at')
     serializer_class = TemplateSerializer
     permission_classes = [OrganizationRolePermission]
 
@@ -92,6 +98,7 @@ class TemplateViewSet(OrganizationScopedQuerySetMixin, viewsets.ModelViewSet):
                 fields=fields or latest.field_schema.get('fields', []),
                 created_by=request.user,
                 changelog=f'Duplicated from template #{source.id}',
+                party_labels={p.role_key: p.label for p in latest.parties.all()},
             )
             duplicate.status = Template.Status.DRAFT
             duplicate.save(update_fields=['status', 'updated_at'])
@@ -108,12 +115,18 @@ class TemplateViewSet(OrganizationScopedQuerySetMixin, viewsets.ModelViewSet):
         ).first()
         if not document:
             raise serializers.ValidationError('Document was not found for this template organization.')
+        party_labels = {
+            p.get('key', p.get('id', '')): p.get('label', '')
+            for p in (serializer.validated_data.get('parties') or [])
+            if p.get('key') or p.get('id')
+        }
         version = setup_template_version(
             template,
             document,
             fields=serializer.validated_data.get('fields'),
             created_by=request.user,
             changelog=serializer.validated_data.get('changelog') or 'Backend template setup',
+            party_labels=party_labels,
         )
         return response.Response(TemplateVersionSerializer(version, context=self.get_serializer_context()).data, status=status.HTTP_201_CREATED)
 
@@ -124,6 +137,7 @@ class TemplateVersionViewSet(OrganizationScopedQuerySetMixin, viewsets.ModelView
     queryset = TemplateVersion.objects.select_related('template', 'document', 'created_by').prefetch_related('parties').all()
     serializer_class = TemplateVersionSerializer
     permission_classes = [OrganizationRolePermission]
+    filterset_fields = ['template']
 
 
 class TemplatePartyViewSet(OrganizationScopedQuerySetMixin, viewsets.ModelViewSet):

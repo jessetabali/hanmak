@@ -1,6 +1,7 @@
 import hashlib
 import io
 import base64
+import re
 from datetime import datetime
 
 try:
@@ -16,6 +17,9 @@ except ImportError:  # Optional local/prod dependency for real source-PDF stampi
 
 CANONICAL_PAGE_WIDTH = 1040
 DEFAULT_PAGE_HEIGHT = 1471
+
+# Matches typed-signature values serialised by the frontend: "[TYPED:name|font|color]"
+_TYPED_SIG_RE = re.compile(r'^\[TYPED:(.+)\|(.+)\|(.+)\]$')
 
 
 def pdf_escape(value):
@@ -196,6 +200,12 @@ def draw_field_value(c, envelope, field, page_height, page_width=CANONICAL_PAGE_
     x, y, width, height = field_geometry_for_page(field, page_width, page_height)
     if draw_data_image(c, display_value, x, y, width, height):
         return
+    # Parse typed-signature values: "[TYPED:signer name|font name|#hexcolor]"
+    typed_sig_color = None
+    typed_match = _TYPED_SIG_RE.match(str(display_value))
+    if typed_match:
+        display_value = typed_match.group(1)   # the signer's written name
+        typed_sig_color = typed_match.group(3)  # hex colour, e.g. '#1e40af'
     if field.field_type == 'checkbox':
         printable = '✓' if str(display_value).lower() == 'true' else ''
     else:
@@ -204,7 +214,8 @@ def draw_field_value(c, envelope, field, page_height, page_width=CANONICAL_PAGE_
         return
     style = metadata.get('signature_style') if isinstance(metadata.get('signature_style'), dict) else {}
     font_size = int(style.get('size') or (max(18, min(40, height * 0.45)) if field.field_type in ['signature', 'initials'] else max(11, min(18, height * 0.34))))
-    color = style.get('color') if isinstance(style, dict) else ''
+    # Prefer colour from the typed-sig format; fall back to metadata or default
+    color = typed_sig_color or (style.get('color') if isinstance(style, dict) else '')
     if isinstance(color, str) and len(color) == 7 and color.startswith('#'):
         try:
             c.setFillColorRGB(int(color[1:3], 16) / 255, int(color[3:5], 16) / 255, int(color[5:7], 16) / 255)

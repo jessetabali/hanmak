@@ -180,6 +180,23 @@ export default function WorkflowBuilder() {
     }
   );
 
+  const advanceRunMutation = useApiMutation(
+    (runId) => apiClient.post(EP.WORKFLOW_RUN_ADVANCE(runId)),
+    {
+      invalidateKeys: ['workflow-runs'],
+      onSuccess: (res) => {
+        const run = res.data;
+        if (run?.status === 'completed') {
+          toast.success('Workflow run completed');
+        } else {
+          toast.success(`Advanced to stage: ${run?.current_stage_key || '—'}`);
+        }
+        refetchRuns();
+      },
+      onError: (e) => toast.error(e.response?.data?.detail || e.message),
+    }
+  );
+
   // ─── Helpers ────────────────────────────────────────────────────────────────
 
   function openEditDrawer(workflow) {
@@ -426,12 +443,18 @@ export default function WorkflowBuilder() {
                 <th>Current Stage</th>
                 <th>Status</th>
                 <th>Started</th>
+                <th></th>
               </tr>
             </thead>
             <tbody>
               {allRuns.slice(0, 10).map((run) => {
                 const wf = workflowById[run.workflow];
-                const currentStage = wf?.stages?.find((s) => s.key === run.current_stage_key);
+                const sortedStages = (wf?.stages ?? []).slice().sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+                const currentStage = sortedStages.find((s) => s.key === run.current_stage_key);
+                const currentIdx = sortedStages.findIndex((s) => s.key === run.current_stage_key);
+                const nextStage = currentIdx >= 0 ? sortedStages[currentIdx + 1] : null;
+                const isRunning = run.status === 'running';
+                const isAdvancing = advanceRunMutation.isPending && advanceRunMutation.variables === run.id;
                 return (
                   <tr key={run.id}>
                     <td>
@@ -444,17 +467,55 @@ export default function WorkflowBuilder() {
                     <td style={{ fontSize: '0.875rem' }}>
                       {currentStage ? (
                         <span>
-                          {currentStage.label}{' '}
-                          <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>({run.current_stage_key})</span>
+                          <span style={{
+                            display: 'inline-block',
+                            width: 8, height: 8,
+                            borderRadius: '50%',
+                            background: stageTypeColor(currentStage.stage_type),
+                            marginRight: 6,
+                            verticalAlign: 'middle',
+                          }} />
+                          {currentStage.label}
+                          {nextStage && (
+                            <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginLeft: 6 }}>
+                              → {nextStage.label}
+                            </span>
+                          )}
+                          {!nextStage && isRunning && (
+                            <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginLeft: 6 }}>
+                              (final stage)
+                            </span>
+                          )}
                         </span>
                       ) : run.current_stage_key ? (
-                        run.current_stage_key
+                        <span style={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>{run.current_stage_key}</span>
+                      ) : isRunning && sortedStages.length > 0 ? (
+                        // Run exists but hasn't been placed on a stage yet (legacy records)
+                        <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>
+                          Pending — {sortedStages[0].label}
+                        </span>
                       ) : (
-                        <span style={{ color: 'var(--text-muted)' }}>Not started</span>
+                        <span style={{ color: 'var(--text-muted)' }}>—</span>
                       )}
                     </td>
                     <td><Badge color={statusColor(run.status)}>{run.status}</Badge></td>
                     <td style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>{formatDateTime(run.started_at)}</td>
+                    <td>
+                      {isRunning && (
+                        <button
+                          className="btn btn-ghost btn-sm"
+                          style={{ fontSize: '0.75rem', whiteSpace: 'nowrap' }}
+                          disabled={isAdvancing}
+                          onClick={() => advanceRunMutation.mutate(run.id)}
+                          title={nextStage ? `Advance to "${nextStage.label}"` : 'Complete this workflow run'}
+                        >
+                          {isAdvancing ? '…' : nextStage ? `↑ ${nextStage.label}` : '✓ Complete'}
+                        </button>
+                      )}
+                      {run.status === 'completed' && (
+                        <span style={{ fontSize: '0.75rem', color: 'var(--success)' }}>✓ Done</span>
+                      )}
+                    </td>
                   </tr>
                 );
               })}

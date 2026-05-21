@@ -89,10 +89,16 @@ def generate_document_page_images(document, target_width=CANONICAL_PAGE_WIDTH):
     pdf2image wraps Poppler (pdftoppm) and returns PIL Image objects.
     Works with both local FileSystemStorage and S3/MinIO (via _get_pdf_bytes).
     Falls back to a plain white canvas when pdf2image / Poppler is unavailable.
-    """
-    from .models import DocumentPage
 
-    page_count = max(1, document.page_count or 1)
+    Page-count resolution order:
+      1. len(pil_pages) — pdf2image read the actual PDF, so its count is
+         authoritative.  This overrides document.page_count so a previously
+         mis-stored count of 1 doesn't silently truncate a multi-page PDF.
+      2. document.page_count — set correctly by prepare_for_builder via pypdf
+         before this function is called.
+      3. Fallback of 1 if both are somehow zero.
+    """
+    from .models import Document, DocumentPage
 
     # Render all pages at once when pdf2image is available.
     pil_pages = None
@@ -108,6 +114,18 @@ def generate_document_page_images(document, target_width=CANONICAL_PAGE_WIDTH):
                 )
             except Exception:
                 pil_pages = None
+
+    # Use pdf2image's actual page count as the authoritative loop bound.
+    # If pdf2image isn't available, fall back to document.page_count (which
+    # prepare_for_builder already set via pypdf or the client-supplied count).
+    if pil_pages:
+        page_count = len(pil_pages)
+        # Sync back so the serialiser returns the correct count.
+        if page_count != document.page_count:
+            document.page_count = page_count
+            Document.objects.filter(pk=document.pk).update(page_count=page_count)
+    else:
+        page_count = max(1, document.page_count or 1)
 
     rendered = []
     for page_number in range(1, page_count + 1):

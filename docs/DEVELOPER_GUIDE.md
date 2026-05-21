@@ -239,6 +239,8 @@ backend/accounts/permissions.py
 
 ## 8. Form Builder And Signing Flow
 
+> **Deep-dive reference:** For a full step-by-step walkthrough of every database write, service call, and frontend state transition, see `docs/HOW_IT_WORKS.md`.
+
 Template setup flow:
 
 1. Upload, select, or prepare a File Library document through `/documents/{id}/prepare-for-builder/`.
@@ -287,6 +289,20 @@ attachment__{field_key}
 ```
 
 The JSON payload is sent in a `payload` multipart field.
+
+## 8.1 Workflow Builder
+
+The Workflow Builder sits on top of the envelope system. It uses four models: `WorkflowDefinition`, `WorkflowStage`, `WorkflowRun`, and `WorkflowEvent`. A `WorkflowRun` holds a FK to `Envelope` (not to `Template`) and a FK to `WorkflowDefinition`. Stage advancement is always manual — no signing event auto-advances a run.
+
+All four viewsets carry `feature_flag_key = 'workflow_builder'` and return 403 when the flag is disabled.
+
+Key endpoints:
+- `POST /workflow-definitions/<id>/activate/` — validate and activate
+- `POST /workflow-definitions/<id>/replace-stages/` — atomically replace all stages
+- `POST /workflow-definitions/<id>/simulate/` — dry-run validation
+- `POST /workflow-runs/<id>/advance/` — advance to the next stage (or complete)
+
+> **Deep-dive reference:** For the full data model, all API endpoints, validation rules, advance mechanics, stage types, the `TemplateVersion.workflow_schema` relationship, and a full happy-path walkthrough, see `docs/HOW_IT_WORKS.md` — Sections 6 and 7.
 
 ## 9. Evidence
 
@@ -418,30 +434,42 @@ Task actions include retry/restart/cancel/purge where implemented.
 
 ## 13. Testing
 
-Current checkpoint: `accounts.tests.TenantScopedAPITests` is green with `91 tests OK` after the invitation-gate, envelope-readiness, payment-webhook, APM/readiness, search-ranking, and auth-lockout cleanup passes.
+Current checkpoint (2026-05-21): **210 tests OK** across all backend apps.
 
-Run all tenant API tests:
+Run the full test suite:
 
 ```bash
-.venv/bin/python backend/manage.py test accounts.tests.TenantScopedAPITests --keepdb
+docker compose -f docker-compose.dev.yml exec backend python manage.py test --verbosity=1
+```
+
+Run the tenant/auth suite only:
+
+```bash
+docker compose -f docker-compose.dev.yml exec backend python manage.py test accounts.tests.TenantScopedAPITests --keepdb
+```
+
+Run the security hardening suite (throttle + security header tests):
+
+```bash
+docker compose -f docker-compose.dev.yml exec backend python manage.py test accounts.tests_security --verbosity=2
 ```
 
 Run focused tests:
 
 ```bash
-.venv/bin/python backend/manage.py test accounts.tests.TenantScopedAPITests.test_release_control_seed_review_and_release_flow --keepdb
+docker compose -f docker-compose.dev.yml exec backend python manage.py test accounts.tests.TenantScopedAPITests.test_release_control_seed_review_and_release_flow
 ```
 
 Check backend configuration:
 
 ```bash
-.venv/bin/python backend/manage.py check
+docker compose -f docker-compose.dev.yml exec backend python manage.py check
 ```
 
 Check migrations:
 
 ```bash
-.venv/bin/python backend/manage.py makemigrations --check --dry-run
+docker compose -f docker-compose.dev.yml exec backend python manage.py makemigrations --check --dry-run
 ```
 
 Check frontend syntax:
@@ -450,7 +478,47 @@ Check frontend syntax:
 for f in hanmak_demo_mock_directory/*.js; do node --check "$f" || exit 1; done
 ```
 
-## 14. Click-Through Audits
+Test coverage spans these modules: `accounts` (tenant API + security), `api_keys`, `approvals`, `auditlog`, `billing`, `compliance`, `documents`, `evidence`, `inbox`, `risk`, `tasks`, `workflow`, `analytics`, `signing`.
+
+## 14. Rate Limiting
+
+Endpoint-scoped rate limiting is implemented via custom DRF throttle classes in `backend/accounts/throttles.py`. All throttle classes inherit from `_ScopedThrottle`, which reads the rate live from `api_settings.DEFAULT_THROTTLE_RATES` on every request — this ensures `override_settings` works correctly in tests.
+
+| Throttle class | Scope | Default | Applied to |
+|---|---|---|---|
+| `LoginRateThrottle` | `login` | 10/min | POST `/auth/login/` |
+| `TokenRefreshRateThrottle` | `token_refresh` | 30/min | POST `/auth/refresh/` |
+| `PublicSigningRateThrottle` | `public_signing` | 30/min | GET/POST `/sign/{token}/`, GET `/sign/{token}/download/` |
+| `AccountSetupRateThrottle` | `account_setup` | 5/min | Invitation accept/inspect actions |
+| `PasswordResetRateThrottle` | `password_reset` | 5/min | Password reset request/complete actions |
+
+Global anon/user throttles (`AnonRateThrottle` / `UserRateThrottle`) apply on top of all endpoints.
+
+All rates are configurable via env vars without code changes:
+
+```text
+THROTTLE_ANON=120/min
+THROTTLE_USER=600/min
+THROTTLE_LOGIN=10/min
+THROTTLE_TOKEN_REFRESH=30/min
+THROTTLE_PUBLIC_SIGNING=30/min
+THROTTLE_ACCOUNT_SETUP=5/min
+THROTTLE_PASSWORD_RESET=5/min
+```
+
+Security headers set globally via `SecurityMiddleware` (configured in `hanmak/settings.py`):
+
+```text
+X-Content-Type-Options: nosniff
+X-Frame-Options: DENY
+X-XSS-Protection: 1; mode=block
+```
+
+Plus `HttpOnly` and `SameSite=Lax` on the session cookie. `BasicAuthentication` is only loaded when `DEBUG=true`.
+
+To write throttle tests, use `@override_settings` with a tight `DEFAULT_THROTTLE_RATES` dict and `CACHES` set to `locmem.LocMemCache`. Call `cache.clear()` in `setUp` and `tearDown`. See `accounts/tests_security.py` for the pattern.
+
+## 15. Click-Through Audits
 
 When checking the mock/live UI, visible module actions should either call a backend API, open a real data modal, download/export real generated content, or be deliberately disabled with clear copy. Avoid new `onclick="showToast(...)"` actions for create/save/delete/send/retry/release/delegate/export flows.
 
@@ -489,7 +557,7 @@ rg -n "function .*Live|registerPage\\(" hanmak_demo_mock_directory/*.js
 
 After changing frontend wiring, run the JS syntax loop above, `backend/manage.py check`, and focused backend tests for the endpoints used by the changed buttons.
 
-## 15. Production Readiness Boundaries
+## 16. Production Readiness Boundaries
 
 These areas now have MVP-level live wiring and explicit production boundaries:
 
@@ -518,7 +586,7 @@ SECURE_HSTS_SECONDS=31536000
 USE_X_FORWARDED_PROTO=true
 ```
 
-## 16. Adding A New Feature
+## 17. Adding A New Feature
 
 Recommended steps:
 
@@ -532,7 +600,7 @@ Recommended steps:
 8. Update `MOCK_ALIGNMENT.md`, `PLAN_ALIGNMENT.md`, and relevant guides.
 9. Run backend checks, migration checks, JS syntax checks, and focused tests.
 
-## 17. Documentation Files
+## 18. Documentation Files
 
 Primary docs:
 
@@ -542,6 +610,7 @@ backend/MOCK_ALIGNMENT.md
 backend/PLAN_ALIGNMENT.md
 docs/USER_GUIDE.md
 docs/DEVELOPER_GUIDE.md
+docs/HOW_IT_WORKS.md          End-to-end mechanics: template creation, signing, workflow builder
 Project_Overview.md
 ```
 

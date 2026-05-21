@@ -129,7 +129,7 @@ export default function Email() {
       return;
     }
     setTestResult(null);
-    testMutation.mutate({ to: testEmail.trim() });
+    testMutation.mutate({ to: testEmail.trim(), organization: Number(localStorage.getItem('HANMAK_ORGANIZATION_ID')) });
   }
 
   const templateList = Array.isArray(templates) ? templates : [];

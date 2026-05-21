@@ -15,6 +15,171 @@ function titleCase(str) {
   return (str || '').split('_').map(p => p.charAt(0).toUpperCase() + p.slice(1)).join(' ');
 }
 
+// ─── Envelope document preview helpers ───────────────────────────────────────
+
+const PREVIEW_DOC_WIDTH = 680; // narrower than signing canvas — fits in the detail sidebar
+
+function parseTypedSig(val) {
+  if (!val || typeof val !== 'string') return null;
+  const m = val.match(/^\[TYPED:(.+)\|(.+)\|(.+)\]$/);
+  return m ? { name: m[1], font: m[2], color: m[3] } : null;
+}
+
+function EnvelopeFieldOverlay({ field, scale, value }) {
+  const fieldType = field.field_type || field.type || 'text';
+  const isSig = ['signature', 'initials'].includes(fieldType);
+  const hasValue = value != null && value !== '';
+  const x = (field.x || 0) * scale;
+  const y = (field.y || 0) * scale;
+  const w = (field.width || 160) * scale;
+  const h = (field.height || 32) * scale;
+
+  let content = null;
+  if (hasValue) {
+    const typedSig = parseTypedSig(value);
+    if (typedSig) {
+      content = (
+        <span style={{ fontFamily: `'${typedSig.font}', cursive`, fontSize: Math.max(10, h * 0.52), color: typedSig.color, whiteSpace: 'nowrap', overflow: 'hidden', display: 'block' }}>
+          {typedSig.name}
+        </span>
+      );
+    } else if (typeof value === 'string' && value.startsWith('data:image/')) {
+      content = <img src={value} alt="Signature" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} />;
+    } else if (fieldType === 'checkbox') {
+      content = <span style={{ fontSize: Math.max(10, h * 0.6), color: '#16a34a' }}>{String(value).toLowerCase() === 'true' ? '✓' : ''}</span>;
+    } else {
+      content = <span style={{ fontSize: Math.max(9, h * 0.4), color: '#0f172a', whiteSpace: 'nowrap', overflow: 'hidden' }}>{String(value)}</span>;
+    }
+  } else {
+    content = <span style={{ fontSize: Math.max(8, h * 0.35), color: isSig ? '#f59e0b' : '#94a3b8', fontWeight: 500 }}>{isSig ? '✍' : '▷'} {field.label || fieldType}</span>;
+  }
+
+  return (
+    <div style={{
+      position: 'absolute', left: x, top: y, width: w, height: h,
+      background: hasValue
+        ? (isSig ? 'rgba(22,163,74,0.08)' : 'rgba(37,99,235,0.07)')
+        : 'rgba(245,158,11,0.08)',
+      border: `1px solid ${hasValue ? (isSig ? 'rgba(22,163,74,0.3)' : 'rgba(37,99,235,0.25)') : 'rgba(245,158,11,0.3)'}`,
+      borderRadius: 3, boxSizing: 'border-box',
+      display: 'flex', alignItems: 'center', padding: '2px 5px',
+      overflow: 'hidden', zIndex: 10,
+    }}>
+      {content}
+    </div>
+  );
+}
+
+function EnvelopeDocumentPreview({ envelope }) {
+  const [expanded, setExpanded] = useState(false);
+
+  // Only show when there are document pages with images
+  const docs = envelope?.documents || [];
+  const hasPages = docs.some(d => (d.document_detail?.pages || []).some(p => p.image_url));
+  const fieldValues = envelope?.field_values || [];
+  const allFields = envelope?.fields || [];
+  const attachmentValues = fieldValues.filter(v => v.attachment_url);
+
+  if (!hasPages && !allFields.length) return null;
+
+  // Collect all pages sorted by document order then page number
+  const allPages = docs
+    .slice()
+    .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+    .flatMap(d =>
+      (d.document_detail?.pages || [])
+        .slice()
+        .sort((a, b) => a.page_number - b.page_number),
+    );
+
+  // Build a lookup: field_key → submitted value string
+  const valueByKey = {};
+  fieldValues.forEach(v => { if (v.field_key) valueByKey[v.field_key] = v.value; });
+
+  return (
+    <div className="card" style={{ padding: '1.25rem' }}>
+      <div
+        style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', userSelect: 'none' }}
+        onClick={() => setExpanded(e => !e)}
+      >
+        <div className="section-title" style={{ margin: 0 }}>
+          Document Preview
+          {fieldValues.length > 0 && (
+            <span style={{ marginLeft: 8, fontSize: '0.75rem', fontWeight: 400, color: 'var(--text-muted)' }}>
+              ({fieldValues.length} field{fieldValues.length !== 1 ? 's' : ''} completed)
+            </span>
+          )}
+        </div>
+        <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>{expanded ? '▲ Collapse' : '▼ Expand'}</span>
+      </div>
+
+      {expanded && (
+        <div style={{ marginTop: '1rem', display: 'flex', flexDirection: 'column', gap: '1rem', maxHeight: '70vh', overflowY: 'auto' }}>
+          {allPages.length === 0 && (
+            <div style={{ color: 'var(--text-muted)', fontSize: 13, textAlign: 'center', padding: '2rem' }}>
+              No rendered page images available.
+            </div>
+          )}
+          {allPages.map((page, pageIndex) => {
+            const pageNum = page.page_number || pageIndex + 1;
+            const pageW = page.width || 1040;
+            const pageH = page.height || 1471;
+            const scale = PREVIEW_DOC_WIDTH / pageW;
+            const displayH = pageH * scale;
+            const pageFields = allFields.filter(f => (f.page != null ? Number(f.page) : 1) === pageNum);
+
+            return (
+              <div key={page.id || pageIndex}>
+                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '0.25rem' }}>Page {pageNum}</div>
+                <div style={{ position: 'relative', width: PREVIEW_DOC_WIDTH, height: displayH, background: '#f8fafc', border: '1px solid var(--border)', borderRadius: 4, overflow: 'hidden' }}>
+                  {page.image_url && (
+                    <img
+                      src={page.image_url}
+                      alt={`Page ${pageNum}`}
+                      style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', display: 'block', pointerEvents: 'none' }}
+                    />
+                  )}
+                  {pageFields.map(f => (
+                    <EnvelopeFieldOverlay
+                      key={f.id}
+                      field={f}
+                      scale={scale}
+                      value={valueByKey[f.field_key] ?? null}
+                    />
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+
+          {/* Attachment list */}
+          {attachmentValues.length > 0 && (
+            <div style={{ borderTop: '1px solid var(--border)', paddingTop: '1rem' }}>
+              <div style={{ fontWeight: 600, fontSize: '0.875rem', marginBottom: '0.75rem' }}>📎 Signer Attachments ({attachmentValues.length})</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                {attachmentValues.map((v, i) => {
+                  const filename = v.metadata?.filename || v.value || `Attachment ${i + 1}`;
+                  const ct = (v.metadata?.content_type || '').toLowerCase();
+                  const isImage = ct.startsWith('image/') || /\.(png|jpg|jpeg|gif|webp)$/i.test(filename);
+                  return (
+                    <div key={v.id || i} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.5rem 0.75rem', background: '#f8fafc', borderRadius: 6, border: '1px solid var(--border)' }}>
+                      <span>{isImage ? '🖼' : '📄'}</span>
+                      <span style={{ flex: 1, fontSize: '0.8125rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{filename}</span>
+                      <a href={v.attachment_url} target="_blank" rel="noopener noreferrer" className="btn btn-ghost btn-sm" style={{ flexShrink: 0, fontSize: '0.75rem' }}>
+                        ⬇ Download
+                      </a>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function EnvelopeDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -358,6 +523,9 @@ export default function EnvelopeDetail() {
               ))}
             </div>
           )}
+
+          {/* Document preview with completed field overlays */}
+          <EnvelopeDocumentPreview envelope={envelope} />
         </div>
 
         {/* Right column — recipients */}

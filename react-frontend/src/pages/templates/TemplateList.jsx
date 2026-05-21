@@ -153,26 +153,67 @@ export default function TemplateList() {
     if (!documentId) return;
     setPreviewLoading(true);
     try {
-      // Fetch document — get already-rendered pages if they exist
+      // ── Path 1: fetch document and use already-rendered server pages ───────
       const { data: doc } = await apiClient.get(EP.DOCUMENT(documentId));
       const existingPages = (doc.pages ?? []).filter(p => p.image_url);
-
       if (existingPages.length > 0) {
         setPreviewPages(existingPages);
         return;
       }
 
-      // No rendered pages yet — trigger prepare-for-builder to generate them
-      // via pdf2image on the backend; rendered_pages come back in the response.
-      const prepRes = await apiClient.post(EP.DOCUMENT_PREPARE(documentId), {
-        page_count: doc.page_count || 1,
-        width: 1040,
-      });
-      const rendered = prepRes.data?.rendered_pages?.length
-        ? prepRes.data.rendered_pages
-        : prepRes.data?.pages ?? [];
-      setPreviewPages(rendered.filter(p => p.image_url));
-    } catch { /* no pages available */ }
+      // ── Path 2: trigger server-side rendering via prepare-for-builder ──────
+      // Do NOT pass page_count when we don't know the real value — the backend
+      // will detect it from pypdf.  Passing `|| 1` would poison page_count in
+      // the DB for multi-page PDFs and cause all subsequent renders to truncate.
+      try {
+        const prepRes = await apiClient.post(EP.DOCUMENT_PREPARE(documentId), {
+          ...(doc.page_count > 0 ? { page_count: doc.page_count } : {}),
+          width: 1040,
+        });
+        const rendered = prepRes.data?.rendered_pages?.length
+          ? prepRes.data.rendered_pages
+          : prepRes.data?.pages ?? [];
+        const serverPages = rendered.filter(p => p.image_url);
+        if (serverPages.length > 0) {
+          setPreviewPages(serverPages);
+          return;
+        }
+      } catch { /* server rendering unavailable — fall through to PDF.js */ }
+
+      // ── Path 3: PDF.js client-side rendering ──────────────────────────────
+      // Used when the backend has no poppler/pdf2image or MinIO is unreachable.
+      const fileUrl = doc.file_url || doc.file;
+      if (!fileUrl) return;
+
+      const pdfjsLib = await import('pdfjs-dist');
+      pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
+        'pdfjs-dist/build/pdf.worker.min.mjs',
+        import.meta.url,
+      ).href;
+
+      const res = await apiClient.get(fileUrl, { responseType: 'arraybuffer' });
+      const pdfDoc = await pdfjsLib.getDocument({ data: res.data }).promise;
+      const clientPages = [];
+      const DOC_W = 1040;
+      for (let i = 1; i <= pdfDoc.numPages; i++) {
+        const page = await pdfDoc.getPage(i);
+        const vp = page.getViewport({ scale: 1 });
+        const scale = DOC_W / vp.width;
+        const scaledVp = page.getViewport({ scale });
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.round(scaledVp.width);
+        canvas.height = Math.round(scaledVp.height);
+        await page.render({ canvasContext: canvas.getContext('2d'), viewport: scaledVp }).promise;
+        // Match shape expected by the preview modal (same as DocumentPageSerializer)
+        clientPages.push({
+          page_number: i,
+          image_url: canvas.toDataURL('image/png'),
+          width: canvas.width,
+          height: canvas.height,
+        });
+      }
+      if (clientPages.length > 0) setPreviewPages(clientPages);
+    } catch { /* nothing to show — modal will display the fallback message */ }
     finally { setPreviewLoading(false); }
   }, []);
 
@@ -471,7 +512,22 @@ export default function TemplateList() {
                         setEnvName(`${t.name} — ${new Date().toLocaleDateString()}`);
                         setEnvMessage('Please review and sign this document at your earliest convenience.');
                         setEnvDueDate(sevenDays);
-                        setEnvRecipients([{ name: '', email: '', role: 'signer', party_key: '' }]);
+                        // Pre-populate one recipient row per party, using their saved labels
+                        const templateParties = t?.versions?.[0]?.parties ?? [];
+                        if (templateParties.length > 0) {
+                          setEnvRecipients(
+                            templateParties
+                              .slice()
+                              .sort((a, b) => (a.routing_order ?? 0) - (b.routing_order ?? 0))
+                              .map(p => ({ name: '', email: '', role: 'signer', party_key: p.role_key })),
+                          );
+                        } else if ((t?.party_keys ?? []).length > 0) {
+                          setEnvRecipients(
+                            t.party_keys.map(pk => ({ name: '', email: '', role: 'signer', party_key: pk })),
+                          );
+                        } else {
+                          setEnvRecipients([{ name: '', email: '', role: 'signer', party_key: '' }]);
+                        }
                         setEnvelopeFromTemplate(t);
                       }}
                       title="Create envelope from this template"
@@ -654,7 +710,7 @@ export default function TemplateList() {
                 <option value="">None</option>
                 {documents.map(doc => (
                   <option key={doc.id} value={doc.id}>
-                    {doc.name || doc.original_filename || doc.filename || `Document #${doc.id}`}
+                    {doc.title || doc.name || doc.original_filename || doc.filename || `Document #${doc.id}`}
                   </option>
                 ))}
               </select>
@@ -675,9 +731,11 @@ export default function TemplateList() {
         const latestVersion = t?.latest_version || t?.versions?.[0];
         const versionId = typeof latestVersion === 'object' ? latestVersion?.id : latestVersion;
         const partyKeys = t?.party_keys ?? [];
+        // Use labelled party data from version if available; fall back to raw slugs
+        const partyData = (t?.versions?.[0]?.parties ?? t?.latest_version?.parties ?? []);
         const fieldCount = t?.field_count ?? t?.fields?.length ?? 0;
         const isReady = !!versionId && fieldCount > 0;
-        const hasParties = partyKeys.length > 0;
+        const hasParties = partyData.length > 0 || partyKeys.length > 0;
 
         return (
           <Modal
@@ -719,7 +777,9 @@ export default function TemplateList() {
                 {isReady ? (
                   <span style={{ color: 'var(--success)' }}>
                     ✓ Template ready — {fieldCount} field{fieldCount !== 1 ? 's' : ''} configured
-                    {partyKeys.length > 0 && `, ${partyKeys.length} signing part${partyKeys.length !== 1 ? 'ies' : 'y'}`}
+                    {partyData.length > 0
+                      ? ` · parties: ${partyData.map(p => p.label || p.role_key).join(', ')}`
+                      : partyKeys.length > 0 ? `, ${partyKeys.length} signing part${partyKeys.length !== 1 ? 'ies' : 'y'}` : ''}
                   </span>
                 ) : versionId ? (
                   <span style={{ color: 'var(--warning)' }}>
@@ -821,9 +881,14 @@ export default function TemplateList() {
                           onChange={e => updateEnvRecipient(idx, 'party_key', e.target.value)}
                         >
                           <option value="">Unassigned</option>
-                          {partyKeys.map(pk => (
-                            <option key={pk} value={pk}>{pk}</option>
-                          ))}
+                          {partyData.length > 0
+                            ? partyData.map(p => (
+                                <option key={p.role_key} value={p.role_key}>{p.label || p.role_key}</option>
+                              ))
+                            : partyKeys.map(pk => (
+                                <option key={pk} value={pk}>{pk.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}</option>
+                              ))
+                          }
                         </select>
                       )}
                       {envRecipients.length > 1 ? (

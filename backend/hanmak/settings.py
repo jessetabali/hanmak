@@ -234,6 +234,14 @@ SECURE_HSTS_INCLUDE_SUBDOMAINS = env.bool('SECURE_HSTS_INCLUDE_SUBDOMAINS', defa
 SECURE_HSTS_PRELOAD = env.bool('SECURE_HSTS_PRELOAD', default=False)
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https') if env.bool('USE_X_FORWARDED_PROTO', default=False) else None
 
+# Security headers served on every response via Django's SecurityMiddleware.
+SECURE_CONTENT_TYPE_NOSNIFF = True       # X-Content-Type-Options: nosniff
+SECURE_BROWSER_XSS_FILTER = True         # X-XSS-Protection: 1; mode=block (legacy browsers)
+X_FRAME_OPTIONS = 'DENY'                 # X-Frame-Options: DENY (clickjacking)
+SESSION_COOKIE_HTTPONLY = True            # JS cannot read the session cookie
+CSRF_COOKIE_HTTPONLY = False             # CSRF token must be readable by JS (standard DRF pattern)
+SESSION_COOKIE_SAMESITE = 'Lax'          # CSRF mitigation for session cookie
+
 SIMPLE_JWT = {
     'ACCESS_TOKEN_LIFETIME': timedelta(hours=8),
     'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
@@ -241,12 +249,16 @@ SIMPLE_JWT = {
     'BLACKLIST_AFTER_ROTATION': False,
 }
 
+_auth_classes = [
+    'accounts.auth.HanMakJWTAuthentication',
+    'rest_framework.authentication.SessionAuthentication',
+]
+# BasicAuthentication transmits credentials in base64 — only allow in DEBUG.
+if DEBUG:
+    _auth_classes.append('rest_framework.authentication.BasicAuthentication')
+
 REST_FRAMEWORK = {
-    'DEFAULT_AUTHENTICATION_CLASSES': [
-        'accounts.auth.HanMakJWTAuthentication',
-        'rest_framework.authentication.SessionAuthentication',
-        'rest_framework.authentication.BasicAuthentication',
-    ],
+    'DEFAULT_AUTHENTICATION_CLASSES': _auth_classes,
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.IsAuthenticated',
     ],
@@ -258,6 +270,21 @@ REST_FRAMEWORK = {
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 20,
+    'DEFAULT_THROTTLE_CLASSES': [
+        'rest_framework.throttling.AnonRateThrottle',
+        'rest_framework.throttling.UserRateThrottle',
+    ],
+    'DEFAULT_THROTTLE_RATES': {
+        # Global defaults
+        'anon': env('THROTTLE_ANON', default='120/min'),
+        'user': env('THROTTLE_USER', default='600/min'),
+        # Per-endpoint scopes (applied via custom throttle classes)
+        'login':          env('THROTTLE_LOGIN',          default='10/min'),
+        'token_refresh':  env('THROTTLE_TOKEN_REFRESH',  default='30/min'),
+        'public_signing': env('THROTTLE_PUBLIC_SIGNING', default='30/min'),
+        'account_setup':  env('THROTTLE_ACCOUNT_SETUP',  default='5/min'),
+        'password_reset': env('THROTTLE_PASSWORD_RESET', default='5/min'),
+    },
 }
 
 SPECTACULAR_SETTINGS = {

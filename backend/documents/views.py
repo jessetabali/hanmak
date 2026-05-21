@@ -103,19 +103,31 @@ class DocumentViewSet(OrganizationScopedQuerySetMixin, viewsets.ModelViewSet):
     @decorators.action(detail=True, methods=['post'], url_path='prepare-for-builder')
     def prepare_for_builder(self, request, pk=None):
         document = self.get_object()
-        if not document.page_count:
-            # Try to detect page count directly from the uploaded PDF.
-            if document.file:
-                try:
-                    from pypdf import PdfReader
-                    document.file.seek(0)
-                    reader = PdfReader(document.file)
-                    document.page_count = len(reader.pages)
-                    document.file.seek(0)
-                except Exception:
-                    pass
-            if not document.page_count:
-                document.page_count = int(request.data.get('page_count') or 1)
+
+        # ── Determine the true page count from the best available source ──────
+        # Priority 1: pypdf reads the actual PDF file (authoritative, works for
+        #             local storage; may fail for S3 if seek() is unsupported).
+        # Priority 2: page_count supplied by the caller (browser PDF.js count
+        #             passed from FormBuilder after client-side render).
+        # Priority 3: whatever is already stored on the document row.
+        # Rule: never silently lower the page count — always take the max so
+        #       a correct value from a previous call is never overwritten by a
+        #       bad one, and a newly discovered higher count always wins.
+        requested_count = int(request.data.get('page_count') or 0)
+        detected_count = 0
+        if document.file:
+            try:
+                from pypdf import PdfReader
+                document.file.seek(0)
+                reader = PdfReader(document.file)
+                detected_count = len(reader.pages)
+                document.file.seek(0)
+            except Exception:
+                pass
+        # pypdf is authoritative; if it failed, take the max of request vs stored.
+        best_count = detected_count or max(requested_count, document.page_count, 1)
+        document.page_count = best_count
+
         document.status = Document.Status.READY
         document.processing_error = ''
         document.processed_at = timezone.now()

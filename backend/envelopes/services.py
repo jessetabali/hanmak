@@ -63,7 +63,7 @@ def normalize_field_geometry(field, target_width=SIGNER_PAGE_WIDTH):
 
 
 @transaction.atomic
-def setup_template_version(template, document, fields=None, created_by=None, changelog='Backend setup'):
+def setup_template_version(template, document, fields=None, created_by=None, changelog='Backend setup', party_labels=None):
     fields = [normalize_field_geometry(field) for field in (fields or DEFAULT_STARTER_FIELDS)]
     next_version = (template.versions.order_by('-version_number').values_list('version_number', flat=True).first() or 0) + 1
     template.status = Template.Status.ACTIVE
@@ -85,11 +85,13 @@ def setup_template_version(template, document, fields=None, created_by=None, cha
         created_by=created_by,
     )
     parties = {}
+    _party_labels = party_labels or {}
     for party_key in sorted({template_field_party_key(field) for field in fields}):
+        label = _party_labels.get(party_key) or party_key.replace('-', ' ').title()
         parties[party_key] = TemplateParty.objects.create(
             template_version=version,
             role_key=party_key,
-            label=party_key.replace('-', ' ').title(),
+            label=label,
             routing_order=int(party_key.split('-')[-1]) if party_key.split('-')[-1].isdigit() else 1,
         )
     for field in fields:

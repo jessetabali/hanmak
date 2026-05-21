@@ -73,6 +73,7 @@ export const EP = {
   SIGN: (token) => `/sign/${token}/`,
   SIGN_SUBMIT: (token) => `/sign/${token}/`,
   SIGN_DECLINE: (token) => `/sign/${token}/`,
+  SIGN_DOWNLOAD: (token) => `/sign/${token}/download/`,
 
   // Workflow
   WORKFLOWS: '/workflows/',

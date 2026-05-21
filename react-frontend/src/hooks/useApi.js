@@ -21,14 +21,15 @@ export function useApiQuery(queryKey, url, params = {}, options = {}) {
  * @param {function} mutationFn  receives the mutation variables and returns a promise
  * @param {object} options  additional useMutation options + optional invalidateKeys
  */
-export function useApiMutation(mutationFn, { invalidateKeys = [], ...options } = {}) {
+export function useApiMutation(mutationFn, { invalidateKeys = [], onSuccess, onError, ...options } = {}) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn,
     onSuccess: (...args) => {
       invalidateKeys.forEach((key) => queryClient.invalidateQueries({ queryKey: [key] }));
-      options.onSuccess?.(...args);
+      onSuccess?.(...args);
     },
+    onError,
     ...options,
   });
 }

@@ -1,79 +1,97 @@
+import { lazy, Suspense } from 'react';
 import { createBrowserRouter, Navigate } from 'react-router-dom';
 import AppShell from './components/layout/AppShell';
 import AuthGuard from './components/layout/AuthGuard';
+import Spinner from './components/ui/Spinner';
 
-// Auth pages (no shell)
-import Login from './pages/Login';
-
-// Public signing (no auth, no shell)
-import PublicSigning from './pages/signing/PublicSigning';
-import AccountSetup from './pages/AccountSetup';
-import AcceptInvite from './pages/AcceptInvite';
-
-// App pages (require auth, rendered inside AppShell)
-import Dashboard from './pages/Dashboard';
-import Inbox from './pages/Inbox';
-import Search from './pages/Search';
-import Profile from './pages/Profile';
-
-import EnvelopeList from './pages/envelopes/EnvelopeList';
-import EnvelopeDetail from './pages/envelopes/EnvelopeDetail';
-
-import TemplateList from './pages/templates/TemplateList';
-import FormBuilder from './pages/templates/FormBuilder';
-
-import Documents from './pages/documents/Documents';
-
-import Signing from './pages/signing/Signing';
-
-import WorkflowBuilder from './pages/workflow/WorkflowBuilder';
-
-import Approvals from './pages/approvals/Approvals';
-
-import AuditTrail from './pages/audit/AuditTrail';
-import EvidenceBundles from './pages/audit/EvidenceBundles';
-
-import Users from './pages/admin/Users';
-import Organizations from './pages/admin/Organizations';
-import Teams from './pages/admin/Teams';
-import Roles from './pages/admin/Roles';
-
+// SettingsLayout is a shared wrapper — keep static so nav renders immediately
 import SettingsLayout from './pages/settings/SettingsLayout';
-import General from './pages/settings/General';
-import Branding from './pages/settings/Branding';
-import Email from './pages/settings/Email';
-import Storage from './pages/settings/Storage';
-import Security from './pages/settings/Security';
-import Notifications from './pages/settings/Notifications';
-import SSO from './pages/settings/SSO';
 
-import SystemHealth from './pages/system/SystemHealth';
-import BackgroundTasks from './pages/system/BackgroundTasks';
-import ErrorLog from './pages/system/ErrorLog';
+// ── Lazy page imports ─────────────────────────────────────────────────────────
+// Each page becomes its own chunk. FormBuilder is the most important: it
+// statically imports pdfjs-dist (~1.2 MB), so making it lazy removes pdfjs
+// from the initial bundle entirely.
 
-import LegalHolds from './pages/compliance/LegalHolds';
-import Retention from './pages/compliance/Retention';
-import DataResidency from './pages/compliance/DataResidency';
-import ComplianceExports from './pages/compliance/ComplianceExports';
+const Login          = lazy(() => import('./pages/Login'));
+const PublicSigning  = lazy(() => import('./pages/signing/PublicSigning'));
+const AccountSetup   = lazy(() => import('./pages/AccountSetup'));
+const AcceptInvite   = lazy(() => import('./pages/AcceptInvite'));
 
-import Billing from './pages/billing/Billing';
-import License from './pages/billing/License';
+const Dashboard      = lazy(() => import('./pages/Dashboard'));
+const Inbox          = lazy(() => import('./pages/Inbox'));
+const Search         = lazy(() => import('./pages/Search'));
+const Profile        = lazy(() => import('./pages/Profile'));
 
-import ApiKeys from './pages/developer/ApiKeys';
-import OAuthApps from './pages/developer/OAuthApps';
-import Webhooks from './pages/developer/Webhooks';
-import ApiDocs from './pages/developer/ApiDocs';
-import TestLab from './pages/developer/TestLab';
-import EmailMessages from './pages/developer/EmailMessages';
-import OperationsConsole from './pages/developer/OperationsConsole';
-import ReleaseControl from './pages/developer/ReleaseControl';
+const EnvelopeList   = lazy(() => import('./pages/envelopes/EnvelopeList'));
+const EnvelopeDetail = lazy(() => import('./pages/envelopes/EnvelopeDetail'));
+
+const TemplateList   = lazy(() => import('./pages/templates/TemplateList'));
+const FormBuilder    = lazy(() => import('./pages/templates/FormBuilder'));
+
+const Documents      = lazy(() => import('./pages/documents/Documents'));
+const Signing        = lazy(() => import('./pages/signing/Signing'));
+const WorkflowBuilder = lazy(() => import('./pages/workflow/WorkflowBuilder'));
+const Approvals      = lazy(() => import('./pages/approvals/Approvals'));
+
+const AuditTrail     = lazy(() => import('./pages/audit/AuditTrail'));
+const EvidenceBundles = lazy(() => import('./pages/audit/EvidenceBundles'));
+
+const Users          = lazy(() => import('./pages/admin/Users'));
+const Organizations  = lazy(() => import('./pages/admin/Organizations'));
+const Teams          = lazy(() => import('./pages/admin/Teams'));
+const Roles          = lazy(() => import('./pages/admin/Roles'));
+
+const General        = lazy(() => import('./pages/settings/General'));
+const Branding       = lazy(() => import('./pages/settings/Branding'));
+const Email          = lazy(() => import('./pages/settings/Email'));
+const Storage        = lazy(() => import('./pages/settings/Storage'));
+const Security       = lazy(() => import('./pages/settings/Security'));
+const Notifications  = lazy(() => import('./pages/settings/Notifications'));
+const SSO            = lazy(() => import('./pages/settings/SSO'));
+
+const SystemHealth   = lazy(() => import('./pages/system/SystemHealth'));
+const BackgroundTasks = lazy(() => import('./pages/system/BackgroundTasks'));
+const ErrorLog       = lazy(() => import('./pages/system/ErrorLog'));
+
+const LegalHolds     = lazy(() => import('./pages/compliance/LegalHolds'));
+const Retention      = lazy(() => import('./pages/compliance/Retention'));
+const DataResidency  = lazy(() => import('./pages/compliance/DataResidency'));
+const ComplianceExports = lazy(() => import('./pages/compliance/ComplianceExports'));
+
+const Billing        = lazy(() => import('./pages/billing/Billing'));
+const License        = lazy(() => import('./pages/billing/License'));
+
+const ApiKeys        = lazy(() => import('./pages/developer/ApiKeys'));
+const OAuthApps      = lazy(() => import('./pages/developer/OAuthApps'));
+const Webhooks       = lazy(() => import('./pages/developer/Webhooks'));
+const ApiDocs        = lazy(() => import('./pages/developer/ApiDocs'));
+const TestLab        = lazy(() => import('./pages/developer/TestLab'));
+const EmailMessages  = lazy(() => import('./pages/developer/EmailMessages'));
+const OperationsConsole = lazy(() => import('./pages/developer/OperationsConsole'));
+const ReleaseControl = lazy(() => import('./pages/developer/ReleaseControl'));
+
+// ── Suspense fallback ─────────────────────────────────────────────────────────
+
+function PageLoader() {
+  return (
+    <div style={{ minHeight: '60vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <Spinner />
+    </div>
+  );
+}
+
+function S({ children }) {
+  return <Suspense fallback={<PageLoader />}>{children}</Suspense>;
+}
+
+// ── Router ────────────────────────────────────────────────────────────────────
 
 export const router = createBrowserRouter([
   // Public routes
-  { path: '/login', element: <Login /> },
-  { path: '/sign/:token', element: <PublicSigning /> },
-  { path: '/account-setup', element: <AccountSetup /> },
-  { path: '/accept-invite', element: <AcceptInvite /> },
+  { path: '/login',         element: <S><Login /></S> },
+  { path: '/sign/:token',   element: <S><PublicSigning /></S> },
+  { path: '/account-setup', element: <S><AccountSetup /></S> },
+  { path: '/accept-invite', element: <S><AcceptInvite /></S> },
 
   // Authenticated app shell
   {
@@ -85,33 +103,30 @@ export const router = createBrowserRouter([
     ),
     children: [
       { index: true, element: <Navigate to="/dashboard" replace /> },
-      { path: 'dashboard', element: <Dashboard /> },
-      { path: 'inbox', element: <Inbox /> },
-      { path: 'search', element: <Search /> },
-      { path: 'profile', element: <Profile /> },
+      { path: 'dashboard',  element: <S><Dashboard /></S> },
+      { path: 'inbox',      element: <S><Inbox /></S> },
+      { path: 'search',     element: <S><Search /></S> },
+      { path: 'profile',    element: <S><Profile /></S> },
 
-      { path: 'envelopes', element: <EnvelopeList /> },
-      { path: 'envelopes/:id', element: <EnvelopeDetail /> },
+      { path: 'envelopes',     element: <S><EnvelopeList /></S> },
+      { path: 'envelopes/:id', element: <S><EnvelopeDetail /></S> },
 
-      { path: 'templates', element: <TemplateList /> },
-      { path: 'form-builder/:templateId?', element: <FormBuilder /> },
+      { path: 'templates',               element: <S><TemplateList /></S> },
+      { path: 'form-builder/:templateId?', element: <S><FormBuilder /></S> },
 
-      { path: 'documents', element: <Documents /> },
+      { path: 'documents', element: <S><Documents /></S> },
+      { path: 'signing',   element: <S><Signing /></S> },
+      { path: 'workflow',  element: <S><WorkflowBuilder /></S> },
+      { path: 'approvals', element: <S><Approvals /></S> },
 
-      { path: 'signing', element: <Signing /> },
-
-      { path: 'workflow', element: <WorkflowBuilder /> },
-
-      { path: 'approvals', element: <Approvals /> },
-
-      { path: 'audit', element: <AuditTrail /> },
-      { path: 'evidence-bundles', element: <EvidenceBundles /> },
+      { path: 'audit',            element: <S><AuditTrail /></S> },
+      { path: 'evidence-bundles', element: <S><EvidenceBundles /></S> },
 
       // Admin
-      { path: 'admin/users', element: <Users /> },
-      { path: 'admin/organizations', element: <Organizations /> },
-      { path: 'admin/teams', element: <Teams /> },
-      { path: 'admin/roles', element: <Roles /> },
+      { path: 'admin/users',         element: <S><Users /></S> },
+      { path: 'admin/organizations',  element: <S><Organizations /></S> },
+      { path: 'admin/teams',          element: <S><Teams /></S> },
+      { path: 'admin/roles',          element: <S><Roles /></S> },
 
       // Settings (nested under SettingsLayout for shared sub-nav)
       {
@@ -119,40 +134,40 @@ export const router = createBrowserRouter([
         element: <SettingsLayout />,
         children: [
           { index: true, element: <Navigate to="general" replace /> },
-          { path: 'general', element: <General /> },
-          { path: 'branding', element: <Branding /> },
-          { path: 'email', element: <Email /> },
-          { path: 'storage', element: <Storage /> },
-          { path: 'security', element: <Security /> },
-          { path: 'notifications', element: <Notifications /> },
-          { path: 'sso', element: <SSO /> },
+          { path: 'general',       element: <S><General /></S> },
+          { path: 'branding',      element: <S><Branding /></S> },
+          { path: 'email',         element: <S><Email /></S> },
+          { path: 'storage',       element: <S><Storage /></S> },
+          { path: 'security',      element: <S><Security /></S> },
+          { path: 'notifications', element: <S><Notifications /></S> },
+          { path: 'sso',           element: <S><SSO /></S> },
         ],
       },
 
       // System
-      { path: 'system/health', element: <SystemHealth /> },
-      { path: 'system/tasks', element: <BackgroundTasks /> },
-      { path: 'system/error-log', element: <ErrorLog /> },
+      { path: 'system/health',     element: <S><SystemHealth /></S> },
+      { path: 'system/tasks',      element: <S><BackgroundTasks /></S> },
+      { path: 'system/error-log',  element: <S><ErrorLog /></S> },
 
       // Compliance
-      { path: 'compliance/legal-holds', element: <LegalHolds /> },
-      { path: 'compliance/retention', element: <Retention /> },
-      { path: 'compliance/data-residency', element: <DataResidency /> },
-      { path: 'compliance/exports', element: <ComplianceExports /> },
+      { path: 'compliance/legal-holds',    element: <S><LegalHolds /></S> },
+      { path: 'compliance/retention',      element: <S><Retention /></S> },
+      { path: 'compliance/data-residency', element: <S><DataResidency /></S> },
+      { path: 'compliance/exports',        element: <S><ComplianceExports /></S> },
 
       // Billing
-      { path: 'billing', element: <Billing /> },
-      { path: 'license', element: <License /> },
+      { path: 'billing', element: <S><Billing /></S> },
+      { path: 'license', element: <S><License /></S> },
 
       // Developer
-      { path: 'developer/api-keys', element: <ApiKeys /> },
-      { path: 'developer/oauth-apps', element: <OAuthApps /> },
-      { path: 'developer/webhooks', element: <Webhooks /> },
-      { path: 'developer/api-docs', element: <ApiDocs /> },
-      { path: 'developer/test-lab', element: <TestLab /> },
-      { path: 'developer/email-messages', element: <EmailMessages /> },
-      { path: 'developer/operations', element: <OperationsConsole /> },
-      { path: 'developer/release-control', element: <ReleaseControl /> },
+      { path: 'developer/api-keys',        element: <S><ApiKeys /></S> },
+      { path: 'developer/oauth-apps',      element: <S><OAuthApps /></S> },
+      { path: 'developer/webhooks',        element: <S><Webhooks /></S> },
+      { path: 'developer/api-docs',        element: <S><ApiDocs /></S> },
+      { path: 'developer/test-lab',        element: <S><TestLab /></S> },
+      { path: 'developer/email-messages',  element: <S><EmailMessages /></S> },
+      { path: 'developer/operations',      element: <S><OperationsConsole /></S> },
+      { path: 'developer/release-control', element: <S><ReleaseControl /></S> },
     ],
   },
 

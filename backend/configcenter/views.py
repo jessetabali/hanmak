@@ -307,6 +307,36 @@ class HealthCheckViewSet(viewsets.ModelViewSet):
         queued_alerts = self._queue_status_alerts(previous_status, current_status, request.user)
         return response.Response({'ok': current_status == 'healthy', 'status': current_status, 'queued_alerts': queued_alerts, 'results': results})
 
+    @decorators.action(detail=True, methods=['post'])
+    def run(self, request, pk=None):
+        """Re-run a single named health check and persist the result."""
+        check_obj = self.get_object()
+        name = check_obj.name
+        # Map each check name to (status_callable, message, metadata_callable)
+        check_map = {
+            'api':        (lambda: 'healthy',            'API process is responding.',          lambda: {}),
+            'database':   (lambda: 'healthy',            'Database SELECT 1 succeeded.',        self._database_metadata),
+            'task_queue': (self._task_status,            'Background task queue checked.',      self._task_metadata),
+            'email':      (self._email_status,           'Email delivery queue checked.',       self._email_metadata),
+            'storage':    (lambda: 'healthy',            'Local media storage checked.',        self._storage_metadata),
+            'worker':     (self._task_status,            'Worker task state checked.',          self._worker_metadata),
+        }
+        status_fn, message, metadata_fn = check_map.get(
+            name,
+            (lambda: 'healthy', f'{name} checked.', lambda: {}),
+        )
+        try:
+            check_status = status_fn()
+            metadata = metadata_fn()
+        except Exception as exc:
+            check_status = 'degraded'
+            metadata = {'error': str(exc)}
+        check_obj.status = check_status
+        check_obj.message = message
+        check_obj.metadata = self._json_safe(metadata)
+        check_obj.save(update_fields=['status', 'message', 'metadata'])
+        return response.Response(HealthCheckSerializer(check_obj).data)
+
     @decorators.action(detail=False, methods=['get'])
     def summary(self, request):
         checks = list(HealthCheck.objects.all().order_by('name'))
@@ -527,7 +557,14 @@ class HealthCheckViewSet(viewsets.ModelViewSet):
         return metrics
 
     def _task_status(self):
-        return 'degraded' if TaskRun.objects.filter(status=TaskRun.Status.FAILED).exists() else 'healthy'
+        # Only flag degraded when there are failures within the last 24 hours;
+        # stale historical failures should not keep the indicator permanently red.
+        from datetime import timedelta
+        cutoff = timezone.now() - timedelta(hours=24)
+        return 'degraded' if TaskRun.objects.filter(
+            status=TaskRun.Status.FAILED,
+            updated_at__gte=cutoff,
+        ).exists() else 'healthy'
 
     def _task_metadata(self):
         return {
