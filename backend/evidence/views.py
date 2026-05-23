@@ -3,9 +3,9 @@ import json
 
 from django.core.files.base import ContentFile
 from django.utils import timezone
-from rest_framework import decorators, permissions, response, viewsets
+from rest_framework import decorators, response, viewsets
 
-from accounts.permissions import OrganizationScopedQuerySetMixin
+from accounts.permissions import OrganizationRolePermission, OrganizationScopedQuerySetMixin
 
 from .models import EvidenceBundle
 from .pdf import build_signed_pdf, can_stamp_source_pdf
@@ -16,7 +16,8 @@ class EvidenceBundleViewSet(OrganizationScopedQuerySetMixin, viewsets.ModelViewS
     feature_flag_key = 'audit_evidence'
     queryset = EvidenceBundle.objects.select_related('envelope', 'generated_by').all().order_by('-created_at')
     serializer_class = EvidenceBundleSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [OrganizationRolePermission]
+    write_roles = OrganizationRolePermission.write_roles
 
     @decorators.action(detail=True, methods=['post'])
     def generate(self, request, pk=None):

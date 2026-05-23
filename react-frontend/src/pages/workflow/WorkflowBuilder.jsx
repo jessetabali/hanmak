@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { Fragment, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApiQuery, useApiMutation } from '../../hooks/useApi';
 import { apiClient } from '../../api/client';
@@ -34,6 +34,17 @@ function labelToKey(label, idx) {
     .replace(/[^a-z0-9]+/g, '_')
     .replace(/^_|_$/g, '');
   return k || `stage_${idx + 1}`;
+}
+
+function runStages(run, workflow) {
+  const stages = run?.stages?.length ? run.stages : workflow?.stages ?? [];
+  return stages.slice().sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+}
+
+function stageParty(run, stage) {
+  const partyKey = stage?.party_key || '';
+  if (!partyKey) return null;
+  return (run?.parties || []).find((party) => party.party_key === partyKey) || null;
 }
 
 // ─── Main component ────────────────────────────────────────────────────────────
@@ -139,11 +150,20 @@ export default function WorkflowBuilder() {
     }
   );
 
-  const updateWorkflowMutation = useApiMutation(
-    ({ id, payload }) => apiClient.patch(EP.WORKFLOW(id), payload),
+  const activateWorkflowMutation = useApiMutation(
+    (id) => apiClient.post(EP.WORKFLOW_ACTIVATE(id), {}),
     {
       invalidateKeys: ['workflows'],
-      onSuccess: () => { toast.success('Workflow updated'); handleRefresh(); },
+      onSuccess: () => { toast.success('Workflow activated'); handleRefresh(); },
+      onError: (e) => toast.error(e.response?.data?.errors?.join(', ') || e.response?.data?.detail || e.message),
+    }
+  );
+
+  const archiveWorkflowMutation = useApiMutation(
+    (id) => apiClient.post(EP.WORKFLOW_ARCHIVE(id), {}),
+    {
+      invalidateKeys: ['workflows'],
+      onSuccess: () => { toast.success('Workflow archived'); handleRefresh(); },
       onError: (e) => toast.error(e.response?.data?.detail || e.message),
     }
   );
@@ -404,7 +424,7 @@ export default function WorkflowBuilder() {
                   {workflow.status === 'active' ? (
                     <button
                       className="btn btn-ghost btn-sm"
-                      onClick={() => updateWorkflowMutation.mutate({ id: workflow.id, payload: { status: 'archived' } })}
+                      onClick={() => archiveWorkflowMutation.mutate(workflow.id)}
                     >
                       Archive
                     </button>
@@ -412,7 +432,7 @@ export default function WorkflowBuilder() {
                     <button
                       className="btn btn-ghost btn-sm"
                       style={{ color: '#10b981' }}
-                      onClick={() => updateWorkflowMutation.mutate({ id: workflow.id, payload: { status: 'active' } })}
+                      onClick={() => activateWorkflowMutation.mutate(workflow.id)}
                     >
                       Activate
                     </button>
@@ -449,13 +469,14 @@ export default function WorkflowBuilder() {
             <tbody>
               {allRuns.slice(0, 10).map((run) => {
                 const wf = workflowById[run.workflow];
-                const sortedStages = (wf?.stages ?? []).slice().sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+                const sortedStages = runStages(run, wf);
                 const currentStage = sortedStages.find((s) => s.key === run.current_stage_key);
                 const currentIdx = sortedStages.findIndex((s) => s.key === run.current_stage_key);
                 const nextStage = currentIdx >= 0 ? sortedStages[currentIdx + 1] : null;
                 const isRunning = run.status === 'running';
                 const isAdvancing = advanceRunMutation.isPending && advanceRunMutation.variables === run.id;
                 return (
+                  <Fragment key={run.id}>
                   <tr key={run.id}>
                     <td>
                       <div style={{ fontWeight: 600 }}>#{run.id}</div>
@@ -463,7 +484,7 @@ export default function WorkflowBuilder() {
                         <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Envelope #{run.envelope}</div>
                       )}
                     </td>
-                    <td style={{ fontSize: '0.875rem' }}>{wf?.name ?? `#${run.workflow}`}</td>
+                    <td style={{ fontSize: '0.875rem' }}>{run.workflow_name || wf?.name || `#${run.workflow}`}</td>
                     <td style={{ fontSize: '0.875rem' }}>
                       {currentStage ? (
                         <span>
@@ -476,6 +497,11 @@ export default function WorkflowBuilder() {
                             verticalAlign: 'middle',
                           }} />
                           {currentStage.label}
+                          {stageParty(run, currentStage) && (
+                            <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginLeft: 6 }}>
+                              {stageParty(run, currentStage).name}
+                            </span>
+                          )}
                           {nextStage && (
                             <span style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginLeft: 6 }}>
                               → {nextStage.label}
@@ -517,6 +543,41 @@ export default function WorkflowBuilder() {
                       )}
                     </td>
                   </tr>
+                  {sortedStages.length > 0 && (
+                    <tr key={`${run.id}-stages`}>
+                      <td />
+                      <td colSpan={5}>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.35rem', padding: '0.35rem 0 0.55rem' }}>
+                          {sortedStages.map((stage) => {
+                            const party = stageParty(run, stage);
+                            const isCurrent = stage.key === run.current_stage_key && run.status === 'running';
+                            return (
+                              <span
+                                key={stage.key}
+                                title={party ? `${party.name} <${party.email}>` : stage.stage_type}
+                                style={{
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: 4,
+                                  fontSize: '0.72rem',
+                                  padding: '2px 7px',
+                                  borderRadius: 16,
+                                  border: `1.5px solid ${stageTypeColor(stage.stage_type)}`,
+                                  color: stageTypeColor(stage.stage_type),
+                                  background: isCurrent ? `${stageTypeColor(stage.stage_type)}22` : `${stageTypeColor(stage.stage_type)}10`,
+                                  fontWeight: isCurrent ? 700 : 500,
+                                }}
+                              >
+                                {stage.label}
+                                {party && <span style={{ color: 'var(--text-muted)', fontWeight: 500 }}>· {party.name}</span>}
+                              </span>
+                            );
+                          })}
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                  </Fragment>
                 );
               })}
             </tbody>

@@ -1,6 +1,6 @@
-from rest_framework import decorators, permissions, response, viewsets
+from rest_framework import decorators, response, viewsets
 
-from accounts.permissions import OrganizationScopedQuerySetMixin
+from accounts.permissions import OrganizationRolePermission, OrganizationScopedQuerySetMixin
 
 from .models import PolicyRule, RiskFinding
 from .serializers import PolicyRuleSerializer, RiskFindingSerializer
@@ -10,7 +10,8 @@ class RiskFindingViewSet(OrganizationScopedQuerySetMixin, viewsets.ModelViewSet)
     feature_flag_key = 'operations_console'
     queryset = RiskFinding.objects.select_related('organization', 'envelope').all().order_by('-created_at')
     serializer_class = RiskFindingSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [OrganizationRolePermission]
+    write_roles = OrganizationRolePermission.write_roles
 
     @decorators.action(detail=True, methods=['post'])
     def resolve(self, request, pk=None):
@@ -24,4 +25,5 @@ class PolicyRuleViewSet(OrganizationScopedQuerySetMixin, viewsets.ModelViewSet):
     feature_flag_key = 'operations_console'
     queryset = PolicyRule.objects.select_related('organization').all().order_by('name')
     serializer_class = PolicyRuleSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [OrganizationRolePermission]
+    write_roles = OrganizationRolePermission.write_roles

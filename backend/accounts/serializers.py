@@ -207,15 +207,33 @@ class InvitationSerializer(serializers.ModelSerializer):
 class UserProfileSerializer(serializers.ModelSerializer):
     username = serializers.CharField(source='user.username', read_only=True)
     email = serializers.EmailField(source='user.email', read_only=True)
+    is_staff = serializers.BooleanField(source='user.is_staff', read_only=True)
+    is_superuser = serializers.BooleanField(source='user.is_superuser', read_only=True)
+    memberships = serializers.SerializerMethodField()
+    roles = serializers.SerializerMethodField()
+    role = serializers.SerializerMethodField()
 
     class Meta:
         model = UserProfile
         fields = [
             'id', 'user', 'username', 'email', 'display_name', 'title',
             'phone', 'timezone', 'locale', 'signature_name', 'preferences',
-            'auth_version', 'failed_login_count', 'locked_until', 'last_failed_login_at', 'updated_at',
+            'auth_version', 'failed_login_count', 'locked_until', 'last_failed_login_at',
+            'is_staff', 'is_superuser', 'memberships', 'roles', 'role', 'updated_at',
         ]
         read_only_fields = ['id', 'auth_version', 'failed_login_count', 'locked_until', 'last_failed_login_at', 'updated_at']
+
+    def get_memberships(self, obj):
+        return UserSerializer(context=self.context).get_memberships(obj.user)
+
+    def get_roles(self, obj):
+        return sorted({membership['role'] for membership in self.get_memberships(obj)})
+
+    def get_role(self, obj):
+        roles = self.get_roles(obj)
+        if 'super_admin' in roles:
+            return 'super_admin'
+        return roles[0] if roles else ''
 
 
 class MFADeviceSerializer(serializers.ModelSerializer):

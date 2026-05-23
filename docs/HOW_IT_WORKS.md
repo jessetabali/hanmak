@@ -1,9 +1,55 @@
 # HanMak — How It Works
 
-This document explains the full end-to-end mechanics of the two most important workflows in HanMak: **Template Creation** and **Document Signing**. It covers both the user-facing experience and the exact technical steps the backend and frontend perform at each stage.
+This document explains how the main HanMak application features fit together: templates, form building, document storage, envelopes, public signing, workflows, approvals, audit/evidence, admin, billing, integrations, and operational tooling. The deepest implementation walkthroughs focus on **Template Creation** and **Document Signing**, because those flows connect most of the system.
 
 For a quick reference to buttons and actions, see `docs/USER_GUIDE.md`.  
 For API patterns, data models, and coding conventions, see `docs/DEVELOPER_GUIDE.md`.
+
+---
+
+## 0. App Feature Map
+
+Most HanMak features share the same foundation: requests are tenant-scoped to the active `Organization`, backend querysets are filtered by organization, and frontend screens call typed endpoint helpers from `react-frontend/src/api/endpoints.js`. Feature flags and plan limits can hide or restrict advanced areas without changing the core data model.
+
+This map was scanned from `react-frontend/src/router.jsx`, `react-frontend/src/api/endpoints.js`, `backend/hanmak/urls.py`, and backend model/viewset classes.
+
+| Feature area | User surface | Main backend objects / APIs | How it works |
+|---|---|---|---|
+| Auth, setup, and profile | Login, account setup, accept invite, profile | auth token APIs, `Invitation`, `UserProfile`, `UserSession`, `MFADevice`, recovery/passkey models | Authenticates users, accepts setup/invite tokens, manages profile security, sessions, MFA/passkeys, and recovery flows. |
+| Dashboard and search | Dashboard, global search, inbox summaries | dashboard/search/inbox APIs, audit/event data, envelope/workflow counts | Aggregates recent activity, pending tasks, signing status, workflow status, search results, and organization-level metrics for the current tenant. |
+| File Library / Documents | File Library, upload, preview, Open in Form Builder | `Document`, `DocumentPage`, `DocumentScan`, `EnvelopeDocument`; `/documents/`, `/prepare-for-builder/` | Uploads files, stores hashes and metadata, renders PDF pages to 1040 px PNGs when possible, scans/records document status, and exposes pages to builders/signers. |
+| Templates and Form Builder | Templates list, template create modal, Form Builder | `Template`, `TemplateVersion`, `TemplateParty`, `FormField`; `/templates/<id>/setup/` | Builds reusable document blueprints. A template can be saved with no workflow, or with an active workflow whose human stages become parties in the template. Each save creates an immutable version. |
+| Envelopes | Envelope list/detail, create from template, send, void, remind, download | `Envelope`, `Recipient`, `EnvelopeDocument`, envelope-scoped `FormField`; `/envelopes/create-from-template/`, `/send/` | Copies the selected template version into a one-time signing package, maps each `party_key` to a recipient, sends signing sessions, and tracks draft/sent/partially signed/completed states. |
+| Public signing and filling | `/sign/<token>`, completed signing page | `SigningSession`, `ConsentRecord`, `Signature`, `EnvelopeFieldValue`; `/sign/<token>/`, `/download/` | Lets recipients fill only their assigned fields without logging in. Previously completed fields are returned as read-only carry-forward values so each stage sees the document state so far. |
+| Workflow Builder | Workflow definitions, stages, simulations, runs | `WorkflowDefinition`, `WorkflowStage`, `WorkflowRun`, `WorkflowEvent`; `/workflows/`, `/workflow-runs/` | Defines reusable approval/review/signing processes. Active workflows can be attached to templates; sending an envelope from that template auto-starts a run on the first stage. Matching public signing/approval completion advances the current workflow stage. |
+| Inbox and approvals | Inbox, approval tasks, review actions | inbox APIs, approval request APIs, envelope/workflow links | Presents signing and approval work to the right users. Approval actions can approve, reject, request changes, or delegate depending on role and state. |
+| Audit and evidence | Audit trail, evidence bundle, signed PDF verification | `AuditEvent`, evidence bundle/PDF utilities, hash metadata | Records important user/system events, stores consent and signature evidence, and generates signed PDFs by overlaying saved field values onto rendered pages or source PDFs. |
+| Admin and identity | Organizations, teams, users, roles, invitations, sessions | accounts/admin APIs, membership/role models, auth/session models | Manages tenant membership, roles, invitations, authentication settings, and identity-provider options. |
+| Settings and messaging | Organization settings, SMTP/email templates, reminders, notifications | settings APIs, `EmailMessage`, reminder schedules, notification preferences | Controls app defaults, email delivery, templates, notification preferences, and scheduled reminder behavior. |
+| Compliance and governance | Legal holds, retention policies, exports, residency settings | compliance/legal-hold/retention/export APIs | Keeps records for regulated workflows, supports retention/disposition rules, and produces organization-scoped exports. |
+| Billing and licensing | Plans, subscriptions, invoices, payment methods, license keys | billing/subscription/license/webhook APIs | Tracks plan access, invoices, payment-provider webhooks, license activation, and entitlement checks. |
+| Developer integrations | API keys, OAuth apps, webhooks, event deliveries, API logs/docs | API key/OAuth/webhook/event-outbox/request-log APIs | Lets external systems call HanMak, receive webhook events, inspect delivery attempts, and debug API activity. |
+| Operations and platform | Health checks, background tasks, incidents, frontend error log, feature flags, risk findings | health/task/incident/search-index/risk/feature-flag APIs | Supports production operations: background task tracking, incident records, policy/risk visibility, frontend error diagnostics, search indexing, and controlled feature rollout. |
+
+### Built-In Roles And Organization Permissions
+
+There are **five built-in membership roles**:
+
+| Role | Scope | Default behavior |
+|---|---|---|
+| Super Admin | Application-wide operator | Can see every organization, switch tenant context, manage cross-organization users, billing, licenses, and organization cleanup. Implemented by Django `is_superuser` or any active `super_admin` membership. |
+| Admin | Organization | Full organization administration. Can write admin, envelope, template, workflow, settings, billing, compliance, developer, and operations resources for that organization. |
+| Manager | Organization | Operational write access. Can create and manage day-to-day resources such as envelopes, templates, workflows, reminders, billing portal sessions, compliance records, API keys, OAuth apps, and webhooks. |
+| Signer | Organization participant | Can read organization-scoped resources that are not further restricted, use inbox/signing flows, and complete assigned signing or approval tasks. Normal signing itself happens through public signing tokens. |
+| Viewer | Organization reader | Read-oriented member. Can list and inspect scoped resources but cannot mutate organization/admin resources unless a custom role or object grant gives extra permissions. |
+
+Backend enforcement is centralized in `backend/accounts/permissions.py`. `OrganizationScopedQuerySetMixin` filters querysets to the active organization from `X-HanMak-Organization` or request data. `OrganizationRolePermission` allows safe reads for active members and restricts writes to admins/managers, app super admins, matching custom-role permissions, or object grants where supported. The admin, document, template, envelope, workflow, messaging, billing, compliance, evidence, developer integration, and operations write surfaces now use that permission path.
+
+The demo seed creates `admin / admin123` as a Django superuser with a `super_admin` membership. A focused seed command is also available:
+
+```bash
+python manage.py seed_super_admin --username superadmin --email superadmin@example.com --password superadmin123
+```
 
 ---
 
@@ -68,7 +114,7 @@ User interactions:
 - **Corner handles to resize** → updates `width`, `height`; minimum 40 px wide × 18 px tall; opposite corner stays pinned
 - **Party tabs** → switches which party's fields are highlighted; double-click a tab to rename the party inline
 
-Supported field types: `text`, `textarea`, `number`, `email`, `date`, `dropdown`, `radio_group`, `checkbox`, `signature`, `initials`, `attachment`.
+Supported field types: `text`, `textarea`, `number`, `email`, `date`, `dropdown`, `radio`, `checkbox`, `signature`, `initials`, `attachment`.
 
 #### Step 4 — Save (creates a new TemplateVersion)
 
@@ -107,7 +153,7 @@ The `setup_template_version()` service function (in `envelopes/services.py`) run
 2. **Increment the version number** — queries `MAX(version_number)` on existing versions and adds 1.
 3. **Set template status to `ACTIVE`** and update `template.version`.
 4. **Create a `TemplateVersion`** row — stores the full normalized `field_schema` JSON (not just FK references), `document` FK, `workflow_schema`, `changelog`, `is_published=True`.
-5. **Create `TemplateParty` rows** — one per unique `party_key` found in the fields. Labels come from the `parties` payload or are derived from the key (`party-1` → "Party 1"). `routing_order` is parsed from the key suffix.
+5. **Create `TemplateParty` rows** — one per unique `party_key` found in the fields, plus any human workflow stages (`signing`, `approval`, `review`) included in `workflow_schema`. Labels come from the `parties` payload, workflow stage labels, or are derived from the key (`party-1` → "Party 1"). `routing_order` comes from the party payload, workflow stage order, or key suffix.
 6. **Create `FormField` rows** — one per field, linked to the `Template`, the `TemplateVersion`, and the appropriate `TemplateParty`. All coordinates are stored in the canonical basis.
 
 On success the response returns the new `TemplateVersion` with its `parties[]` and `field_count`. Form Builder updates its state and shows a success toast.
@@ -135,12 +181,20 @@ From the Templates list page, each template card/row supports:
 | **Archive / Activate** | Toggles `template.status` between `ARCHIVED` and `ACTIVE` |
 | **Delete** | `DELETE /api/v1/templates/<id>/` — only possible for `DRAFT` or `ARCHIVED` templates with no live envelopes |
 
-### 1.4 Envelope Creation From a Template
+### 1.4 Templates With or Without Workflow
+
+Templates do not require a workflow. If no workflow is selected, Form Builder saves the template normally: fields define the required parties, the sender assigns recipients when creating an envelope, and the envelope can be sent without any workflow run.
+
+If a workflow is selected, the workflow must be an **active** workflow in the same organization. The template setup endpoint expands the selected definition into `workflow_schema`, copies the workflow stage labels/order into the template parties, and requires recipients for the workflow's human stages when an envelope is created from that template. This is how approval/review/signing parties from Workflow Builder become visible in Form Builder, template setup, envelope creation, and workflow runs.
+
+Workflow-backed templates still use immutable versions. Changing the workflow later does not rewrite old template versions; saving the template again creates a new version with a new workflow snapshot.
+
+### 1.5 Envelope Creation From a Template
 
 When a sender clicks **Use** on a template, the modal collects recipient assignments (one per party). On submit it calls:
 
 ```
-POST /api/v1/envelopes/create_from_template/
+POST /api/v1/envelopes/create-from-template/
 {
   "template_version": <version_id>,
   "name": "Service Agreement — Acme Corp",
@@ -157,7 +211,7 @@ POST /api/v1/envelopes/create_from_template/
 
 1. Validates all `party_key` values in the field schema have a matching recipient.
 2. Creates the `Envelope` row (`status = DRAFT`).
-3. Creates one `Recipient` row per recipient in the payload.
+3. Creates one `Recipient` row per recipient in the payload and stores the template/workflow `party_key` on each recipient.
 4. Creates an `EnvelopeDocument` linking the template's document to the envelope.
 5. Copies every `FormField` from the template version to the envelope — applying `normalize_field_geometry()` again — and assigns each field to the matching `Recipient` instance via `party_key`.
 
@@ -219,6 +273,7 @@ On success the serializer returns:
 - Envelope subject and sender info
 - Signer name, role
 - All `fields[]` assigned to this recipient (with `x`, `y`, `width`, `height`, `page`, `field_type`, `required`, `label`, `field_key`, `options`)
+- `all_fields[]` and `field_values[]` so the frontend can render values already completed by earlier parties as read-only overlays
 - All `documents[]` with `document_detail.pages[]` containing pre-rendered `image_url` entries
 
 #### Step 4 — Document Pages Rendered
@@ -246,6 +301,8 @@ Overlay color convention:
 - **Blue** — currently active/focused
 
 Clicking a `signature` or `initials` overlay opens the **Signature Modal** directly.
+
+Fields assigned to the active recipient are interactive. Fields already completed by another recipient are displayed as read-only values. Shared or unassigned fields that were completed by an earlier signer are also shown read-only for later parties, so the same field is not accidentally filled twice.
 
 #### Step 6 — Signature Capture
 
@@ -349,7 +406,7 @@ For drawn or uploaded signatures the `value` is the raw `data:image/png;base64,.
 Once `submitted = true` (set client-side immediately after the POST succeeds), the frontend replaces the interactive signing UI with a read-only completed view:
 
 - A sticky green banner: "Document Signed Successfully"
-- The document pages displayed with all field values overlaid at their positions
+- The document pages displayed with all field values overlaid at their positions, including the signature or initials submitted in the current browser session
 - A **Download Signed PDF** button
 
 The download button calls:
@@ -433,22 +490,22 @@ Recipient opens link  ───────────────────�
        ▼                                                                    │
 GET /sign/<token>/                                                          │
   → Session validated                                                       │
-  → status: CREATED → OPENED                                               │
+  → status: CREATED → OPENED                                                │
   → ip_address + user_agent recorded                                        │
-  → Returns: fields, document pages, signer info                           │
+  → Returns: fields, document pages, signer info                            │
        │                                                                    │
        ▼                                                                    │
-Browser renders PDF pages (server images or PDF.js fallback)               │
-Field overlays positioned at canonical 1040px coordinates                  │
+Browser renders PDF pages (server images or PDF.js fallback)                │
+Field overlays positioned at canonical 1040px coordinates                   │
        │                                                                    │
-  ┌────┴─────────────────────────────────────┐                             │
-  │                                          │                             │
-  ▼                                          ▼                             │
-DECLINE                                  DELEGATE ───────────────────────►─┘
+  ┌────┴─────────────────────────────────────┐                              │
+  │                                          │                              │
+  ▼                                          ▼                              │
+DECLINE                                  DELEGATE ───────────────────────►──┘
   → envelope: DECLINED                     → new Recipient created          (new token)
   → all other sessions: REVOKED            → fields moved to delegate
   → void_reason recorded                   → original session: REVOKED
-                                            → delegate gets invitation email
+  │                                          → delegate gets invitation email
   ▼
 SUBMIT (all required fields filled + signature captured)
 POST /sign/<token>/
@@ -736,7 +793,7 @@ POST /api/v1/envelopes/create-from-template/
 
 1. Validates both `party_key` values exist in the version's field schema — both present ✓.
 2. Creates `Envelope` row: `status="draft"`.
-3. Creates `Recipient` rows for each entry in `recipients`.
+3. Creates `Recipient` rows for each entry in `recipients`, preserving each entry's `party_key`.
 4. Creates `EnvelopeDocument` linking document 42 to the new envelope.
 5. Copies each `FormField` from `version_fields(v1)` to envelope-scoped rows:
    - `normalize_field_geometry()` called again — coordinates unchanged (already canonical).
@@ -748,8 +805,8 @@ POST /api/v1/envelopes/create-from-template/
 | Table | Row | Key fields |
 |---|---|---|
 | `envelopes_envelope` | id=99 | `status="draft"`, `template=5`, `template_version=v1`, `sender=jesse` |
-| `envelopes_recipient` | id=r1 | `envelope=99`, `name="Jesse Tabali"`, `email="jesse@example.com"`, `role="signer"`, `routing_order=1` |
-| `envelopes_recipient` | id=r2 | `envelope=99`, `name="Acme Corp Rep"`, `email="rep@acme.com"`, `role="signer"`, `routing_order=2` |
+| `envelopes_recipient` | id=r1 | `envelope=99`, `party_key="party-1"`, `name="Jesse Tabali"`, `email="jesse@example.com"`, `role="signer"`, `routing_order=1` |
+| `envelopes_recipient` | id=r2 | `envelope=99`, `party_key="party-2"`, `name="Acme Corp Rep"`, `email="rep@acme.com"`, `role="signer"`, `routing_order=2` |
 | `documents_envelopedocument` | id=ed1 | `envelope=99`, `document=42`, `order=1` |
 | `envelopes_formfield` | id=ef1 | `envelope=99`, `recipient=r1`, `template_version=v1`, `document_page=101`, `field_key="seller-signature"`, `page=1`, `x=133`, `y=1040` |
 | `envelopes_formfield` | id=ef2 | `envelope=99`, `recipient=r2`, `template_version=v1`, `document_page=102`, `field_key="buyer-signature"`, `page=2`, `x=133`, `y=200` |
@@ -1014,7 +1071,7 @@ That is the **entire file footprint**. The template setup (Phase 3), envelope cr
 
 ## 6. How Workflow Builder Relates to Templates and Envelopes
 
-The Workflow Builder is a **post-signing orchestration layer**. It does not replace Templates or Envelopes — it wraps around an already-sent envelope to coordinate the human steps that must happen after (or alongside) signing.
+The Workflow Builder is an **envelope orchestration layer**. It does not replace Templates or Envelopes; it coordinates the human signing, review, approval, notification, and condition stages around a real envelope.
 
 ### 6.1 The Conceptual Boundary
 
@@ -1030,7 +1087,7 @@ Template ──► TemplateVersion ──► Envelope ──► Signing
 - An **Envelope** is a single sending of that template to specific recipients.
 - A **WorkflowRun** attaches to the **Envelope** (not to the Template) to orchestrate stages such as legal review, manager approval, or compliance sign-off that the signing system alone cannot model.
 
-The three systems are intentionally decoupled. You can send an envelope without ever creating a workflow run. You can define a workflow without it ever being tied to a specific template. This separation lets you apply the same workflow definition to many different templates' envelopes.
+The three systems can be used independently, but templates may also opt into an active workflow. A template without a workflow behaves like a normal signing template. A workflow-backed template stores the selected workflow definition and stage-party mapping in the template version, and sending an envelope from that template starts a workflow run automatically.
 
 ### 6.2 The Data Relationship in Detail
 
@@ -1039,11 +1096,18 @@ The three systems are intentionally decoupled. You can send an envelope without 
 `TemplateVersion` has a `workflow_schema` JSON field:
 
 ```python
-# Example value — informational only
-{'stages': [{'key': 'signer', 'type': 'signing', 'order': 1}]}
+# Example value for a workflow-backed template
+{
+  'workflow_definition_id': 12,
+  'workflow_name': 'Contract Approval',
+  'stages': [
+    {'key': 'signer', 'label': 'Signer', 'stage_type': 'signing', 'order': 1, 'party_key': 'signer'},
+    {'key': 'legal', 'label': 'Legal Approval', 'stage_type': 'approval', 'order': 2, 'party_key': 'legal'}
+  ]
+}
 ```
 
-**This is a hint, not a foreign key.** There is no FK from `TemplateVersion` to `WorkflowDefinition`. The `workflow_schema` field is informational metadata that a front-end or integration could use to pre-populate a workflow run, but HanMak does NOT currently read this field to auto-start a workflow run when an envelope is created or sent. It exists as a schema anchor for future automation.
+There is still no database FK from `TemplateVersion` to `WorkflowDefinition`; the template version stores a snapshot-like JSON reference. HanMak validates that the referenced workflow is active and belongs to the same organization when the template is saved. Human stages (`signing`, `approval`, `review`) become template parties through their `party_key`.
 
 #### Envelope side — `WorkflowRun.envelope`
 
@@ -1068,27 +1132,30 @@ if envelope.organization_id != workflow.organization_id:
     )
 ```
 
-### 6.3 What Does NOT Happen Automatically
+### 6.3 What Happens Automatically
 
 | Event | Auto-triggers workflow run? | Auto-advances stage? |
 |---|---|---|
-| Envelope created from template | ❌ No | — |
-| Envelope sent | ❌ No | — |
-| Recipient signs | ❌ No | ❌ No |
+| Draft envelope created from template | ❌ No | — |
+| Workflow-backed envelope sent | ✅ Yes | ❌ No |
+| Non-workflow envelope sent | ❌ No | — |
+| Recipient signs a matching workflow stage | ❌ No | ✅ Yes |
 | All recipients sign (envelope completed) | ❌ No | ❌ No |
-| Approval approved | ❌ No | ❌ No |
+| Approval recipient approves through public envelope link | ❌ No | ✅ Yes |
+| Approval queue action approved manually | ❌ No | ✅ Yes when linked to a workflow party |
 
-Nothing in the signing or approval system signals the workflow engine. All state changes require a manager to call `POST /api/v1/workflow-runs/<id>/advance/` explicitly. This is a deliberate design choice: the workflow engine is a human coordination tool, not an event-driven pipeline.
+Sending a workflow-backed envelope creates a `WorkflowRun`, places it on the first workflow stage, and records a `workflow.started` event. When a public signing/approval recipient completes a task and their `Recipient.party_key` matches the current workflow stage key, HanMak records `workflow.stage_completed` and advances the run to the next stage, or completes it if that was the final stage. Managers and integrations can still advance manually with `POST /api/v1/workflow-runs/<id>/advance/`.
 
 ### 6.4 What Templates Contribute to a Workflow
 
-When you create an envelope from a template and then start a workflow run on that envelope, the template contributes indirectly:
+When you create and send an envelope from a workflow-backed template, the template contributes:
 
 - The **document identity** (which PDF pages are in the envelope) flows through `DocumentPage` rows that are already rendered by the time the workflow starts.
 - The **field values** submitted by signers (stored in `EnvelopeFieldValue`) are queryable during workflow review stages using the `GET /api/v1/envelopes/<id>/` endpoint.
-- The **routing order** of signers (from `TemplateParty.routing_order`) means signing finishes in a defined sequence before a manager starts advancing workflow stages.
+- The **party mapping** is stored on recipients as `party_key`, so workflow runs can show which recipient owns each stage.
+- The **routing order** of signers (from `TemplateParty.routing_order` and recipient routing order) keeps signing invitations sequenced.
 
-The template itself is not queried at workflow-run time. The `WorkflowRun` and `WorkflowStage` logic cares only about the `Envelope` FK and the `WorkflowDefinition.stages` ordered list.
+Workflow runs serialize their stage list and envelope parties so the UI can show every stage and party directly from the run payload.
 
 ### 6.5 Intended Use Pattern
 
@@ -1096,14 +1163,15 @@ The intended pattern for combining Templates, Envelopes, and Workflows is:
 
 ```
 1. Define template (Template → TemplateVersion → FormFields + Parties)
-2. Send envelope (Template → Envelope → SigningSessions → Emails)
-3. Recipients sign (Envelope status → "completed" or "partially_signed")
-4. Manager creates workflow run (WorkflowRun links envelope ↔ workflow)
-5. Manager advances stages as each human step completes
-6. Workflow run completes (status → "completed", WorkflowEvent recorded)
+2. Optionally choose an active workflow before saving the template
+3. Send envelope (Template → Envelope → SigningSessions → Emails)
+4. If workflow-backed, HanMak creates a WorkflowRun on the first stage
+5. Recipients sign (Envelope status → "completed" or "partially_signed")
+6. Manager advances workflow stages as each human step completes
+7. Workflow run completes (status → "completed", WorkflowEvent recorded)
 ```
 
-Steps 1–3 happen in Templates/Envelopes/Signing. Steps 4–6 happen entirely in Workflow Builder.
+Steps 1–5 happen in Templates/Envelopes/Signing. Steps 6–7 happen in Workflow Builder or through the workflow-run API.
 
 ---
 
@@ -1171,15 +1239,15 @@ All endpoints are under `/api/v1/` and gated by the `workflow_builder` feature f
 
 | Method | URL | Purpose |
 |---|---|---|
-| `GET` | `/workflow-definitions/` | List all definitions for the org (includes nested stages) |
-| `POST` | `/workflow-definitions/` | Create a new draft definition |
-| `GET` | `/workflow-definitions/<id>/` | Retrieve one definition |
-| `PATCH` | `/workflow-definitions/<id>/` | Update name, description, status directly |
-| `DELETE` | `/workflow-definitions/<id>/` | Delete definition (admin only) |
-| `POST` | `/workflow-definitions/<id>/activate/` | Validate and move status → `active` |
-| `POST` | `/workflow-definitions/<id>/archive/` | Move status → `archived` |
-| `POST` | `/workflow-definitions/<id>/simulate/` | Run validation and return result without changing status |
-| `POST` | `/workflow-definitions/<id>/replace-stages/` | Atomically replace all stages: deletes existing, creates new list |
+| `GET` | `/workflows/` | List all definitions for the org (includes nested stages) |
+| `POST` | `/workflows/` | Create a new draft definition |
+| `GET` | `/workflows/<id>/` | Retrieve one definition |
+| `PATCH` | `/workflows/<id>/` | Update name, description, status directly |
+| `DELETE` | `/workflows/<id>/` | Delete definition (admin only) |
+| `POST` | `/workflows/<id>/activate/` | Validate and move status → `active` |
+| `POST` | `/workflows/<id>/archive/` | Move status → `archived` |
+| `POST` | `/workflows/<id>/simulate/` | Run validation and return result without changing status |
+| `POST` | `/workflows/<id>/replace-stages/` | Atomically replace all stages: deletes existing, creates new list |
 
 #### WorkflowRun
 
@@ -1250,7 +1318,7 @@ The first advance call moves from "not started" (`current_index = -1`) to `stage
 
 ### 7.5 The `replace_stages` Action — Exactly What Happens
 
-When `POST /api/v1/workflow-definitions/<id>/replace-stages/` is called with a `stages` list:
+When `POST /api/v1/workflows/<id>/replace-stages/` is called with a `stages` list:
 
 1. Open an atomic database transaction.
 2. Delete **all** existing `WorkflowStage` rows for this workflow.
@@ -1292,7 +1360,7 @@ The single-page `WorkflowBuilder` component provides:
 | **New Workflow** modal | Name + description + default two-stage starter list; creates definition then immediately calls `replace-stages` to persist the stages |
 | Edit Drawer | Add / remove / reorder stages; set `assignee_user` and `assignee_team` per stage; Save Stages calls `replace-stages`; Activate / Archive buttons |
 | **New Run** modal | Dropdown filtered to `status=sent` envelopes only; submits `{ workflow: <id>, envelope: <id> }` to `/workflow-runs/` |
-| Recent Runs table | Shows `envelope`, `workflow`, `status`, `current_stage_key`, `started_at` |
+| Recent Runs table | Shows `envelope`, `workflow`, `status`, `current_stage_key`, stage chips, party names, and `started_at` |
 | Advance button (per run row) | Posts to `/workflow-runs/<id>/advance/` |
 
 Data is fetched on mount for: workflows, workflow-runs, users (for assignee dropdowns), teams (for assignee dropdowns), and envelopes filtered to `status=sent`.
@@ -1310,38 +1378,41 @@ Data is fetched on mount for: workflows, workflow-runs, users (for assignee drop
         - label: "Legal Sign-off",    stage_type: "review",   order: 3
 
 3.  Edit Drawer → Activate
-      POST /workflow-definitions/<id>/activate/
+      POST /workflows/<id>/activate/
       → status: "active"
 
-4.  Templates → Create Envelope → Send
+4.  Templates → Create Template
+      Choose the active workflow before saving if the template should be workflow-backed.
+      Workflow human stages become template parties.
+
+5.  Templates → Create Envelope → Send
       → Envelope status becomes "sent"
       → Signing session emails delivered to recipients
+      → If the template is workflow-backed, WorkflowRun is created automatically
 
-5.  Recipients sign (public signing flow)
+6.  Recipients sign (public signing flow)
       → Envelope status becomes "completed" (or "partially_signed" if sequential)
 
-6.  Workflow Builder → New Run
-      → Choose "Enterprise Signing Process" (active)
-      → Choose the sent/completed envelope
-      POST /workflow-runs/
-      → WorkflowRun created: status="running", current_stage_key=""
+7.  Workflow Builder → Recent Runs
+      → Auto-started run shows the workflow stages and envelope parties
+      → For non-workflow templates, use New Run to start a run manually
 
-7.  Advance to Stage 1 (Signer Review)
+8.  Advance to Stage 1 (Signer Review)
       POST /workflow-runs/<run_id>/advance/
       → current_stage_key = "signer_review"
       → WorkflowEvent recorded: event_type="workflow.stage_advanced"
 
-8.  Human review complete. Advance to Stage 2 (Manager Approval)
+9.  Human review complete. Advance to Stage 2 (Manager Approval)
       POST /workflow-runs/<run_id>/advance/
       → current_stage_key = "manager_approval"
       → WorkflowEvent recorded
 
-9.  Approval given. Advance to Stage 3 (Legal Sign-off)
+10. Approval given. Advance to Stage 3 (Legal Sign-off)
       POST /workflow-runs/<run_id>/advance/
       → current_stage_key = "legal_sign_off"
       → WorkflowEvent recorded
 
-10. Legal complete. Advance past final stage.
+11. Legal complete. Advance past final stage.
       POST /workflow-runs/<run_id>/advance/
       → status = "completed", completed_at = now()
       → WorkflowEvent recorded: event_type="workflow.completed"
@@ -1351,9 +1422,9 @@ Data is fetched on mount for: workflows, workflow-runs, users (for assignee drop
 
 | Limitation | Detail |
 |---|---|
-| **Manual progression only** | No signing, approval, or system event auto-triggers stage advancement. Every advance requires an explicit API call |
+| **Party-key progression only** | Public signing/approval auto-advances only when the completing recipient's `party_key` matches the current workflow stage key. Other stage changes still require an explicit API call |
 | **Assignees are advisory** | `config.assignee_user` / `config.assignee_team` are stored and displayed but not enforced by the advance endpoint |
-| **No auto-start** | Creating an envelope — even from a template with `workflow_schema` — does NOT automatically create a `WorkflowRun` |
+| **Auto-start is send-only** | Workflow-backed envelopes start a `WorkflowRun` when sent. Saving a draft does not start a run until the draft is sent |
 | **No duplicate-run guard** | Multiple `WorkflowRun` rows can exist for the same envelope simultaneously; no uniqueness constraint prevents this |
 | **No stage branching** | The `condition` stage type is accepted but not evaluated; advancement is always linear (`current_index + 1`) |
 | **WorkflowRun survives definition deletion** | `workflow` FK is `SET_NULL` — a run whose definition was deleted continues to show `workflow: null` but retains its `current_stage_key` and event history |

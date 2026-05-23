@@ -254,22 +254,26 @@ def queue_envelope_invites(envelope, queued_by=None, request=None):
 def queue_reminders(envelope, queued_by=None, request=None):
     messages = []
     for recipient in envelope.recipients.exclude(status__in=['signed', 'declined', 'delegated']):
-        session, _ = SigningSession.objects.get_or_create(envelope=envelope, recipient=recipient)
-        signing_url = absolute_signing_url(request, session)
-        subject, body, html_body = render_email(EmailMessage.Kind.REMINDER, envelope, recipient, signing_url)
-        messages.append(EmailMessage.objects.create(
-            organization=envelope.organization,
-            envelope=envelope,
-            recipient=recipient,
-            signing_session=session,
-            kind=EmailMessage.Kind.REMINDER,
-            to_email=recipient.email,
-            subject=subject,
-            body=body,
-            html_body=html_body,
-            queued_by=queued_by,
-        ))
+        messages.append(queue_recipient_reminder(recipient, queued_by=queued_by, request=request))
     return messages
+
+
+def queue_recipient_reminder(recipient, queued_by=None, request=None):
+    session, _ = SigningSession.objects.get_or_create(envelope=recipient.envelope, recipient=recipient)
+    signing_url = absolute_signing_url(request, session)
+    subject, body, html_body = render_email(EmailMessage.Kind.REMINDER, recipient.envelope, recipient, signing_url)
+    return EmailMessage.objects.create(
+        organization=recipient.envelope.organization,
+        envelope=recipient.envelope,
+        recipient=recipient,
+        signing_session=session,
+        kind=EmailMessage.Kind.REMINDER,
+        to_email=recipient.email,
+        subject=subject,
+        body=body,
+        html_body=html_body,
+        queued_by=queued_by,
+    )
 
 
 def queue_completion_emails(envelope, queued_by=None, request=None):

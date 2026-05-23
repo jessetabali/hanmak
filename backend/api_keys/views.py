@@ -1,8 +1,8 @@
 import hashlib
 
-from rest_framework import decorators, permissions, response, viewsets
+from rest_framework import decorators, response, viewsets
 
-from accounts.permissions import OrganizationScopedQuerySetMixin
+from accounts.permissions import OrganizationRolePermission, OrganizationScopedQuerySetMixin
 
 from .models import APIKey, APIRequestLog
 from .serializers import APIKeySerializer, APIRequestLogSerializer
@@ -12,7 +12,8 @@ class APIKeyViewSet(OrganizationScopedQuerySetMixin, viewsets.ModelViewSet):
     feature_flag_key = 'api_keys'
     queryset = APIKey.objects.select_related('organization').all().order_by('-created_at')
     serializer_class = APIKeySerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [OrganizationRolePermission]
+    write_roles = OrganizationRolePermission.write_roles
 
     def perform_create(self, serializer):
         self._assert_related_organization_access(serializer)
@@ -58,4 +59,4 @@ class APIRequestLogViewSet(OrganizationScopedQuerySetMixin, viewsets.ReadOnlyMod
     feature_flag_key = 'operations_console'
     queryset = APIRequestLog.objects.select_related('organization', 'api_key').all()
     serializer_class = APIRequestLogSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [OrganizationRolePermission]

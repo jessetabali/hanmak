@@ -17,6 +17,13 @@ class WorkflowDefinitionViewSet(OrganizationScopedQuerySetMixin, viewsets.ModelV
     serializer_class = WorkflowDefinitionSerializer
     permission_classes = [OrganizationRolePermission]
 
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        status_value = self.request.query_params.get('status')
+        if status_value:
+            queryset = queryset.filter(status=status_value)
+        return queryset
+
     def perform_create(self, serializer):
         self._assert_related_organization_access(serializer)
         serializer.save(created_by=self.request.user)
@@ -122,7 +129,7 @@ class WorkflowStageViewSet(OrganizationScopedQuerySetMixin, viewsets.ModelViewSe
 
 class WorkflowRunViewSet(OrganizationScopedQuerySetMixin, viewsets.ModelViewSet):
     feature_flag_key = 'workflow_builder'
-    queryset = WorkflowRun.objects.select_related('envelope', 'workflow').all().order_by('-started_at')
+    queryset = WorkflowRun.objects.select_related('envelope', 'envelope__template_version', 'workflow').prefetch_related('envelope__recipients', 'workflow__stages').all().order_by('-started_at')
     serializer_class = WorkflowRunSerializer
     permission_classes = [OrganizationRolePermission]
     write_roles = [Membership.Role.ADMIN, Membership.Role.MANAGER]

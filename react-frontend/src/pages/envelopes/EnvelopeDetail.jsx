@@ -15,6 +15,17 @@ function titleCase(str) {
   return (str || '').split('_').map(p => p.charAt(0).toUpperCase() + p.slice(1)).join(' ');
 }
 
+function uniqueEnvelopeDocuments(docs = []) {
+  const seen = new Set();
+  return docs.filter((entry) => {
+    const docId = entry.document ?? entry.document_detail?.id ?? entry.id;
+    const key = docId ? `doc:${docId}` : `entry:${entry.id ?? `${entry.order ?? ''}:${entry.document_detail?.title ?? entry.name ?? ''}`}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 // ─── Envelope document preview helpers ───────────────────────────────────────
 
 const PREVIEW_DOC_WIDTH = 680; // narrower than signing canvas — fits in the detail sidebar
@@ -74,7 +85,7 @@ function EnvelopeDocumentPreview({ envelope }) {
   const [expanded, setExpanded] = useState(false);
 
   // Only show when there are document pages with images
-  const docs = envelope?.documents || [];
+  const docs = uniqueEnvelopeDocuments(envelope?.documents || []);
   const hasPages = docs.some(d => (d.document_detail?.pages || []).some(p => p.image_url));
   const fieldValues = envelope?.field_values || [];
   const allFields = envelope?.fields || [];
@@ -92,9 +103,19 @@ function EnvelopeDocumentPreview({ envelope }) {
         .sort((a, b) => a.page_number - b.page_number),
     );
 
-  // Build a lookup: field_key → submitted value string
-  const valueByKey = {};
-  fieldValues.forEach(v => { if (v.field_key) valueByKey[v.field_key] = v.value; });
+  const valueForField = (field) => {
+    const byField = fieldValues.find(v => String(v.field || '') === String(field.id));
+    if (byField) return byField.value;
+    const byRecipientAndKey = fieldValues.find(v =>
+      v.field_key === field.field_key &&
+      field.recipient &&
+      String(v.recipient || '') === String(field.recipient),
+    );
+    if (byRecipientAndKey) return byRecipientAndKey.value;
+    return field.recipient
+      ? null
+      : fieldValues.find(v => v.field_key === field.field_key)?.value ?? null;
+  };
 
   return (
     <div className="card" style={{ padding: '1.25rem' }}>
@@ -144,7 +165,7 @@ function EnvelopeDocumentPreview({ envelope }) {
                       key={f.id}
                       field={f}
                       scale={scale}
-                      value={valueByKey[f.field_key] ?? null}
+                      value={valueForField(f)}
                     />
                   ))}
                 </div>
@@ -335,7 +356,7 @@ export default function EnvelopeDetail() {
   const isOverdue = envelope.due_date && !['completed', 'voided', 'declined', 'expired'].includes(envelope.status) && envelope.due_date < today;
 
   const pct = envelope.completion_percent || 0;
-  const documents = envelope.documents || [];
+  const documents = uniqueEnvelopeDocuments(envelope.documents || []);
 
   // Gap #2 — resolve template display name and ID
   const templateId = envelope.template_id ?? (typeof envelope.template === 'number' ? envelope.template : null);

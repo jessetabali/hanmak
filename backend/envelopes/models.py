@@ -105,6 +105,7 @@ class Recipient(models.Model):
     name = models.CharField(max_length=255)
     email = models.EmailField()
     role = models.CharField(max_length=32, choices=Role.choices, default=Role.SIGNER)
+    party_key = models.SlugField(blank=True)
     status = models.CharField(max_length=32, choices=Status.choices, default=Status.PENDING)
     routing_order = models.PositiveIntegerField(default=1)
     signed_at = models.DateTimeField(null=True, blank=True)

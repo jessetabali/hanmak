@@ -222,6 +222,7 @@ class EnvelopeDocumentViewSet(OrganizationScopedQuerySetMixin, viewsets.ModelVie
     queryset = EnvelopeDocument.objects.select_related('envelope', 'document').all().order_by('envelope_id', 'order')
     serializer_class = EnvelopeDocumentSerializer
     permission_classes = [OrganizationRolePermission]
+    filterset_fields = ['envelope', 'document']
 
 
 class DocumentPageViewSet(OrganizationScopedQuerySetMixin, viewsets.ModelViewSet):

@@ -5,7 +5,8 @@ from rest_framework import status
 from rest_framework.test import APIClient
 
 from accounts.models import Membership, Organization
-from documents.models import Document
+from documents.models import Document, EnvelopeDocument
+from envelopes.models import Envelope
 
 User = get_user_model()
 
@@ -84,6 +85,35 @@ class DocumentTests(TestCase):
         response = self.client.delete(f'/api/v1/documents/{self.doc.id}/')
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
         self.assertFalse(Document.objects.filter(id=self.doc.id).exists())
+
+    def test_envelope_document_list_filters_by_envelope(self):
+        envelope_one = Envelope.objects.create(
+            organization=self.org,
+            sender=self.user,
+            name='Envelope One',
+        )
+        envelope_two = Envelope.objects.create(
+            organization=self.org,
+            sender=self.user,
+            name='Envelope Two',
+        )
+        other_doc = Document.objects.create(
+            organization=self.org,
+            uploaded_by=self.user,
+            title='Other Contract.pdf',
+            file=SimpleUploadedFile('other-contract.pdf', b'%PDF-1.4', content_type='application/pdf'),
+            page_count=1,
+            status=Document.Status.READY,
+        )
+        EnvelopeDocument.objects.create(envelope=envelope_one, document=self.doc, order=1)
+        EnvelopeDocument.objects.create(envelope=envelope_two, document=other_doc, order=1)
+
+        response = self.client.get('/api/v1/envelope-documents/', {'envelope': envelope_one.id})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        document_ids = [item['document'] for item in response.data['results']]
+        self.assertEqual(document_ids, [self.doc.id])
+        self.assertNotIn(other_doc.id, document_ids)
 
     # ── prepare-for-builder multi-page tests ───────────────────────────────────
 

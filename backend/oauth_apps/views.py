@@ -2,9 +2,9 @@ import secrets
 
 from django.contrib.auth.hashers import make_password
 from django.utils import timezone
-from rest_framework import decorators, permissions, response, viewsets
+from rest_framework import decorators, response, viewsets
 
-from accounts.permissions import OrganizationScopedQuerySetMixin
+from accounts.permissions import OrganizationRolePermission, OrganizationScopedQuerySetMixin
 
 from .models import OAuthApplication, OAuthGrant
 from .serializers import OAuthApplicationSerializer, OAuthGrantSerializer
@@ -14,7 +14,8 @@ class OAuthApplicationViewSet(OrganizationScopedQuerySetMixin, viewsets.ModelVie
     feature_flag_key = 'oauth_apps'
     queryset = OAuthApplication.objects.select_related('organization', 'created_by').all().order_by('name')
     serializer_class = OAuthApplicationSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [OrganizationRolePermission]
+    write_roles = OrganizationRolePermission.write_roles
 
     def perform_create(self, serializer):
         self._assert_related_organization_access(serializer)
@@ -70,8 +71,9 @@ class OAuthGrantViewSet(OrganizationScopedQuerySetMixin, viewsets.ModelViewSet):
     feature_flag_key = 'oauth_apps'
     queryset = OAuthGrant.objects.select_related('application', 'application__organization', 'user').all().order_by('-created_at')
     serializer_class = OAuthGrantSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [OrganizationRolePermission]
     organization_filter_paths = ['application__organization']
+    write_roles = OrganizationRolePermission.write_roles
 
     @decorators.action(detail=True, methods=['post'])
     def revoke(self, request, pk=None):

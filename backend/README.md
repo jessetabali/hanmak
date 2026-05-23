@@ -28,6 +28,12 @@ Gamma Holdings
 
 Use the sidebar organization switcher in the mock UI to change the active company. The frontend stores the selected organization in `HANMAK_ORGANIZATION_ID` and sends it to the API as `X-HanMak-Organization`.
 
+Built-in membership roles are `super_admin`, `admin`, `manager`, `signer`, and `viewer`. `seed_demo` creates `admin / admin123` as a Django superuser with a `super_admin` membership and seeds all five system role records for each demo organization. To create only one root operator account, run:
+
+```bash
+python manage.py seed_super_admin --username superadmin --email superadmin@example.com --password superadmin123
+```
+
 ## Mock UI
 
 Open `hanmak_demo_mock_directory/index.html` in a browser. The mock now includes a small API client that can connect to the local backend, load live dashboard/inbox/envelope data, and exercise send/reminder actions.

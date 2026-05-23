@@ -1,12 +1,23 @@
 # Frontend / Backend Hookup Audit
 
-Last updated: 2026-05-21
+Last updated: 2026-05-23
 
 This audit compares the visible mock frontend modules with the backend endpoints currently exposed under `/api/v1/`.
 
+## Feature Scan Source
+
+The current coverage matrix is based on a feature-by-feature scan of:
+
+- `react-frontend/src/router.jsx` for visible pages and public/authenticated routes.
+- `react-frontend/src/api/endpoints.js` for frontend API constants.
+- `backend/hanmak/urls.py` for registered DRF routers and standalone API paths.
+- Backend `models.py` and `views.py` files for the data objects/actions behind each feature.
+
+No visible React feature group is intentionally undocumented: auth/setup/profile, dashboard, inbox, search, templates, form builder, documents, envelopes, signing, workflow, approvals, audit/evidence, admin, settings/identity, system operations, compliance, billing/license, developer/integrations, and release control are all represented below.
+
 ## React Frontend Hookup Status (2026-05-18)
 
-The React production frontend (`react-frontend/`) is fully implemented. All 44 pages call live backend endpoints via the centralized `EP` registry (`src/api/endpoints.js`). Key integration notes:
+The React production frontend (`react-frontend/`) is fully implemented. All 46 lazy-loaded pages call live backend endpoints via the centralized `EP` registry (`src/api/endpoints.js`). Key integration notes:
 
 | Concern | Implementation |
 |---|---|
@@ -46,6 +57,7 @@ The React production frontend (`react-frontend/`) is fully implemented. All 44 p
 | Roles & Permissions | Live: create/edit/delete and permission matrix update. |
 | Background Tasks | Live: summaries, task runs, definitions, worker metrics, retry/cancel/purge/logs. |
 | System Health | Live: summary checks, APM config, deployment readiness, incidents, public status, alert thresholds/subscriptions. |
+| Error Log | Live frontend error log page backed by the client error store for local diagnostics. |
 | General Settings | Live: singleton general settings. |
 | Branding | Live: branding settings, logo upload, color application, signing/email domain values, footer. |
 | Email / SMTP | Live: SMTP app-setting storage, SMTP test endpoint, email templates CRUD/preview. |
@@ -108,6 +120,15 @@ The React production frontend (`react-frontend/`) is fully implemented. All 44 p
 | Resizable field boxes | `templates/FormBuilder.jsx` | Corner drag handles (NW/NE/SW/SE) appear on selected fields. `startDragField` extended with `mode` param (`'move'` default, `'resize-se'`, `'resize-sw'`, `'resize-ne'`, `'resize-nw'`). Opposite corner is pinned during resize; min size enforced (40px wide, 18px tall). `FieldOverlay`, `DocumentPage`, `BlankPage` updated to pass resize mode through. |
 | Radio button field type | `templates/FormBuilder.jsx` | Added `radio` to `FIELD_DEFAULTS` (160×80), `FIELD_LABELS`, and `FIELD_GROUPS` (Selection group). `FieldInspector` `isSelect` condition includes `radio` so the options editor appears for radio groups. `fieldApiType` passes `radio` through unchanged. |
 | Rename party names | `templates/FormBuilder.jsx` | Double-click any party tab to rename it inline. An `<input>` replaces the button; pressing Enter or blurring commits the new name; Escape cancels. `editingPartyId` state + `renameParty` callback added. |
+
+## 2026-05-23 Workflow, Preview, and Signing Carry-Forward Fixes
+
+| Area | Files Changed | Fix |
+|---|---|---|
+| Workflow-backed templates | `TemplateList.jsx`, `FormBuilder.jsx`, `envelopes/serializers.py`, `envelopes/services.py`, `envelopes/views.py` | Templates can be saved with or without an active workflow. Workflow-backed templates store `workflow_schema`, turn human workflow stages into parties, require party recipients, and auto-start a workflow run on send. |
+| Workflow run stage/party display | `envelopes/models.py`, `workflow/serializers.py`, `WorkflowBuilder.jsx` | Added `Recipient.party_key`, persisted party ownership, and serialized run `stages`/`parties` so workflow runs show all stages and owning parties. |
+| Multi-page template preview | `TemplateList.jsx` | Preview now prefers PDF.js when the source PDF is available, rendering every page and repairing backend page count with `prepare-for-builder`. |
+| Public signing carry-forward | `PublicSigning.jsx` | Submit success uses the fresh POST response, and shared/unassigned fields completed by the first signer render as read-only overlays for later parties. |
 
 ## 2026-05-20 Critical Bug Fixes
 

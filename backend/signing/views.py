@@ -8,9 +8,11 @@ from rest_framework import decorators, parsers, permissions, response, status, v
 from accounts.permissions import OrganizationScopedQuerySetMixin, feature_flag_allows
 from accounts.throttles import PublicSigningRateThrottle
 from approvals.models import ApprovalRequest
-from envelopes.models import Envelope, Recipient
+from approvals.services import decide_approval, ensure_approval_for_recipient
+from envelopes.models import Envelope, FormField, Recipient
 from messaging.services import queue_completion_emails, queue_envelope_invites
 from messaging.tasks import deliver_email_message_task
+from workflow.services import advance_running_workflows_for_recipient
 
 from .models import ConsentRecord, EnvelopeFieldValue, Signature, SigningSession
 from .serializers import (
@@ -145,17 +147,15 @@ class PublicSigningSessionView(views.APIView):
                 metadata=signature_data.get('metadata', {}),
             )
         allowed_fields = session.envelope.fields.filter(Q(recipient__isnull=True) | Q(recipient=session.recipient))
-        submitted_values = {
-            item.get('field_key', ''): item.get('value', '')
-            for item in payload.get('field_values', [])
-        }
+        submitted_field_values = payload.get('field_values', [])
         missing_required = []
         for required_field in allowed_fields.filter(required=True):
-            value = submitted_values.get(required_field.field_key, '')
+            submitted_value = self._submitted_value_for_field(submitted_field_values, required_field)
+            value = submitted_value.get('value', '') if submitted_value else ''
             if required_field.field_type == required_field.FieldType.CHECKBOX:
                 is_complete = str(value).lower() == 'true'
             elif required_field.field_type == required_field.FieldType.ATTACHMENT:
-                is_complete = bool(self._attachment_for_field(request, required_field.field_key))
+                is_complete = bool(self._attachment_for_field(request, required_field.field_key, required_field.id))
             else:
                 is_complete = bool(str(value).strip())
             if not is_complete:
@@ -165,9 +165,9 @@ class PublicSigningSessionView(views.APIView):
                 {'detail': f'Required field(s) missing: {", ".join(missing_required[:5])}'},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        for field_value in payload.get('field_values', []):
+        for field_value in submitted_field_values:
             field_key = field_value.get('field_key', '')
-            field = allowed_fields.filter(field_key=field_key).first()
+            field = self._field_from_submitted_value(allowed_fields, field_value)
             if not field:
                 if session.envelope.fields.exists():
                     return response.Response(
@@ -179,7 +179,7 @@ class PublicSigningSessionView(views.APIView):
                 'value': field_value.get('value', ''),
                 'metadata': field_value.get('metadata', {}),
             }
-            attachment = self._attachment_for_field(request, field_key)
+            attachment = self._attachment_for_field(request, field_key, field.id if field else None)
             if attachment:
                 defaults['attachment'] = attachment
                 defaults['value'] = attachment.name
@@ -189,12 +189,16 @@ class PublicSigningSessionView(views.APIView):
                     'content_type': getattr(attachment, 'content_type', ''),
                     'size': attachment.size,
                 }
-            EnvelopeFieldValue.objects.update_or_create(
-                envelope=session.envelope,
-                recipient=session.recipient,
-                field_key=field_key,
-                defaults=defaults,
-            )
+            lookup = {
+                'envelope': session.envelope,
+                'recipient': session.recipient,
+                'field': field,
+            } if field else {
+                'envelope': session.envelope,
+                'recipient': session.recipient,
+                'field_key': field_key,
+            }
+            EnvelopeFieldValue.objects.update_or_create(**lookup, defaults={**defaults, 'field_key': field_key})
         session.status = SigningSession.Status.SUBMITTED
         session.submitted_at = timezone.now()
         session.save(update_fields=['status', 'submitted_at'])
@@ -202,8 +206,27 @@ class PublicSigningSessionView(views.APIView):
         session.recipient.signed_at = timezone.now()
         session.recipient.save(update_fields=['status', 'signed_at'])
         envelope = session.envelope
+        if session.recipient.role == Recipient.Role.APPROVER:
+            approval = ensure_approval_for_recipient(envelope, session.recipient, approver_user=envelope.sender)
+            decide_approval(
+                approval,
+                ApprovalRequest.Status.APPROVED,
+                notes=payload.get('approval_notes', approval.notes),
+                request=request,
+                actor=envelope.sender,
+                mark_recipient=False,
+            )
+            envelope.refresh_from_db()
+        else:
+            advance_running_workflows_for_recipient(
+                envelope,
+                session.recipient,
+                message=f'{session.recipient.name} completed their signing task.',
+            )
         active_recipients = envelope.recipients.exclude(role=Recipient.Role.CC).exclude(status=Recipient.Status.DELEGATED)
-        if not active_recipients.exclude(status=Recipient.Status.SIGNED).exists():
+        if envelope.status == Envelope.Status.COMPLETED:
+            pass
+        elif not active_recipients.exclude(status=Recipient.Status.SIGNED).exists():
             envelope.status = Envelope.Status.COMPLETED
             envelope.completed_at = timezone.now()
             envelope.save(update_fields=['status', 'completed_at', 'updated_at'])
@@ -222,12 +245,7 @@ class PublicSigningSessionView(views.APIView):
                     deliver_email_message_task.apply_async(args=[message.id], queue='email')
             if session.recipient.role == Recipient.Role.SIGNER:
                 for approver in envelope.recipients.filter(role=Recipient.Role.APPROVER).exclude(status__in=[Recipient.Status.SIGNED, Recipient.Status.DELEGATED]):
-                    ApprovalRequest.objects.get_or_create(
-                        envelope=envelope,
-                        approver=envelope.sender,
-                        approval_role=f'{approver.name} approval',
-                        defaults={'notes': f'Awaiting approval from {approver.name} <{approver.email}>.'},
-                    )
+                    ensure_approval_for_recipient(envelope, approver, approver_user=envelope.sender)
         session = self.get_session(token)
         return response.Response(PublicSigningSessionSerializer(session, context={'request': request}).data)
 
@@ -247,6 +265,16 @@ class PublicSigningSessionView(views.APIView):
         envelope.void_reason = reason or f'Declined by {session.recipient.name or session.recipient.email}.'
         envelope.save(update_fields=['status', 'void_reason', 'updated_at'])
         envelope.signing_sessions.exclude(id=session.id).exclude(status=SigningSession.Status.SUBMITTED).update(status=SigningSession.Status.REVOKED)
+        if session.recipient.role == Recipient.Role.APPROVER:
+            approval = ensure_approval_for_recipient(envelope, session.recipient, approver_user=envelope.sender)
+            decide_approval(
+                approval,
+                ApprovalRequest.Status.REJECTED,
+                notes=reason or approval.notes,
+                request=request,
+                actor=envelope.sender,
+                mark_recipient=False,
+            )
 
         ConsentRecord.objects.get_or_create(
             envelope=envelope,
@@ -275,12 +303,17 @@ class PublicSigningSessionView(views.APIView):
             name=name,
             email=email,
             role=session.recipient.role,
+            party_key=session.recipient.party_key,
             status=Recipient.Status.SENT,
             routing_order=session.recipient.routing_order,
             delegation_reason=reason,
             delegated_at=timezone.now(),
         )
         session.recipient.fields.update(recipient=delegate)
+        for approval in ApprovalRequest.objects.filter(envelope=session.envelope, recipient=session.recipient, status=ApprovalRequest.Status.PENDING):
+            approval.recipient = delegate
+            approval.notes = f'Delegated approval to {delegate.name} <{delegate.email}>. {reason}'.strip()
+            approval.save(update_fields=['recipient', 'notes'])
         session.recipient.status = Recipient.Status.DELEGATED
         session.recipient.delegated_at = timezone.now()
         session.recipient.delegation_reason = reason
@@ -307,7 +340,34 @@ class PublicSigningSessionView(views.APIView):
         except (TypeError, ValueError):
             return {}
 
-    def _attachment_for_field(self, request, field_key):
+    def _field_from_submitted_value(self, allowed_fields, field_value):
+        field_id = field_value.get('field') or field_value.get('field_id') or field_value.get('id')
+        if field_id:
+            try:
+                return allowed_fields.get(id=field_id)
+            except (FormField.DoesNotExist, ValueError, TypeError):
+                return None
+        field_key = field_value.get('field_key', '')
+        if not field_key:
+            return None
+        return allowed_fields.filter(field_key=field_key).order_by('id').first()
+
+    def _submitted_value_for_field(self, submitted_values, field):
+        field_id = str(field.id)
+        for submitted in submitted_values:
+            submitted_field_id = submitted.get('field') or submitted.get('field_id') or submitted.get('id')
+            if submitted_field_id and str(submitted_field_id) == field_id:
+                return submitted
+        for submitted in submitted_values:
+            if submitted.get('field_key') == field.field_key:
+                return submitted
+        return None
+
+    def _attachment_for_field(self, request, field_key, field_id=None):
+        if field_id:
+            for key in (f'attachment__field_{field_id}', f'attachment__{field_id}', f'field_{field_id}', str(field_id)):
+                if key in request.FILES:
+                    return request.FILES[key]
         return request.FILES.get(f'attachment__{field_key}') or request.FILES.get(field_key)
 
 

@@ -23,6 +23,36 @@ from webhooks.models import EventOutbox, WebhookDelivery, WebhookEndpoint
 from workflow.models import WorkflowDefinition, WorkflowEvent, WorkflowRun, WorkflowStage
 
 
+DEFAULT_SYSTEM_ROLES = [
+    ('Super Admin', 'Global application operator access', ['*']),
+    ('Administrator', 'Full organization administrative access', ['*']),
+    ('Manager', 'Operational write access for organization workflows', [
+        'envelopes:*', 'templates:*', 'documents:*', 'workflows:*',
+        'approvals:*', 'tasks:*', 'billing:view', 'compliance:view',
+    ]),
+    ('Signer', 'Signing participant access', [
+        'inbox:view', 'envelopes:view', 'signing:create',
+    ]),
+    ('Viewer', 'Read-only organization access', [
+        'envelopes:view', 'templates:view', 'documents:view',
+        'audit_events:view', 'billing:view', 'compliance:view',
+    ]),
+]
+
+
+def seed_system_roles(organization):
+    for name, description, permissions in DEFAULT_SYSTEM_ROLES:
+        Role.objects.update_or_create(
+            organization=organization,
+            name=name,
+            defaults={
+                'description': description,
+                'is_system': True,
+                'permissions': permissions,
+            },
+        )
+
+
 class Command(BaseCommand):
     help = 'Create demo data for the HanMak mock-up backend.'
 
@@ -56,16 +86,12 @@ class Command(BaseCommand):
             name='Operations',
             defaults={'description': 'Core operations and document processing'},
         )
-        Membership.objects.get_or_create(
+        Membership.objects.update_or_create(
             user=admin,
             organization=org,
-            defaults={'team': operations, 'role': Membership.Role.ADMIN},
+            defaults={'team': operations, 'role': Membership.Role.SUPER_ADMIN},
         )
-        Role.objects.get_or_create(
-            organization=org,
-            name='Administrator',
-            defaults={'description': 'Full administrative access', 'is_system': True, 'permissions': ['*']},
-        )
+        seed_system_roles(org)
         UserProfile.objects.get_or_create(
             user=admin,
             defaults={
@@ -671,11 +697,7 @@ class Command(BaseCommand):
             organization=organization,
             defaults={'team': team, 'role': Membership.Role.ADMIN},
         )
-        Role.objects.get_or_create(
-            organization=organization,
-            name='Administrator',
-            defaults={'description': 'Full administrative access', 'is_system': True, 'permissions': ['*']},
-        )
+        seed_system_roles(organization)
         GeneralSettings.objects.get_or_create(
             organization=organization,
             defaults={

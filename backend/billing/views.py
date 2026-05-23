@@ -11,7 +11,7 @@ from rest_framework import decorators, permissions, response, viewsets
 from rest_framework.decorators import api_view, permission_classes
 
 from accounts.models import Organization
-from accounts.permissions import OrganizationScopedQuerySetMixin, feature_flag_allows_request, user_has_org_role
+from accounts.permissions import OrganizationRolePermission, OrganizationScopedQuerySetMixin, feature_flag_allows_request, user_has_org_role
 from accounts.models import Membership
 
 from .models import Invoice, LicenseKey, PaymentMethod, PaymentPortalSession, PaymentWebhookEvent, Plan, Subscription, UsageRecord
@@ -55,7 +55,8 @@ class SubscriptionViewSet(OrganizationScopedQuerySetMixin, viewsets.ModelViewSet
     feature_flag_key = 'billing_usage'
     queryset = Subscription.objects.select_related('organization', 'plan').all().order_by('organization__name')
     serializer_class = SubscriptionSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [OrganizationRolePermission]
+    write_roles = OrganizationRolePermission.write_roles
 
     @decorators.action(detail=False, methods=['post'], url_path='checkout-session')
     def checkout_session(self, request):
@@ -117,14 +118,16 @@ class UsageRecordViewSet(OrganizationScopedQuerySetMixin, viewsets.ModelViewSet)
     feature_flag_key = 'billing_usage'
     queryset = UsageRecord.objects.select_related('organization').all().order_by('-period_end')
     serializer_class = UsageRecordSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [OrganizationRolePermission]
+    write_roles = OrganizationRolePermission.write_roles
 
 
 class LicenseKeyViewSet(OrganizationScopedQuerySetMixin, viewsets.ModelViewSet):
     feature_flag_key = 'license_management'
     queryset = LicenseKey.objects.select_related('organization').all().order_by('-created_at')
     serializer_class = LicenseKeySerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [OrganizationRolePermission]
+    write_roles = [Membership.Role.SUPER_ADMIN, Membership.Role.ADMIN]
 
     def perform_create(self, serializer):
         self._assert_related_organization_access(serializer)
@@ -145,28 +148,31 @@ class InvoiceViewSet(OrganizationScopedQuerySetMixin, viewsets.ModelViewSet):
     feature_flag_key = 'billing_usage'
     queryset = Invoice.objects.select_related('organization').all().order_by('-created_at')
     serializer_class = InvoiceSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [OrganizationRolePermission]
+    write_roles = OrganizationRolePermission.write_roles
 
 
 class PaymentMethodViewSet(OrganizationScopedQuerySetMixin, viewsets.ModelViewSet):
     feature_flag_key = 'billing_usage'
     queryset = PaymentMethod.objects.select_related('organization').all().order_by('-is_default', '-updated_at')
     serializer_class = PaymentMethodSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [OrganizationRolePermission]
+    write_roles = OrganizationRolePermission.write_roles
 
 
 class PaymentPortalSessionViewSet(OrganizationScopedQuerySetMixin, viewsets.ModelViewSet):
     feature_flag_key = 'billing_usage'
     queryset = PaymentPortalSession.objects.select_related('organization', 'plan', 'created_by').all()
     serializer_class = PaymentPortalSessionSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [OrganizationRolePermission]
+    write_roles = OrganizationRolePermission.write_roles
 
 
 class PaymentWebhookEventViewSet(OrganizationScopedQuerySetMixin, viewsets.ReadOnlyModelViewSet):
     feature_flag_key = 'billing_usage'
     queryset = PaymentWebhookEvent.objects.select_related('organization', 'portal_session').all()
     serializer_class = PaymentWebhookEventSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [OrganizationRolePermission]
 
 
 @csrf_exempt

@@ -4,9 +4,9 @@ import urllib.error
 import urllib.request
 
 from django.utils import timezone
-from rest_framework import decorators, permissions, response, viewsets
+from rest_framework import decorators, response, viewsets
 
-from accounts.permissions import OrganizationScopedQuerySetMixin
+from accounts.permissions import OrganizationRolePermission, OrganizationScopedQuerySetMixin
 
 from .models import EventOutbox, WebhookDelivery, WebhookEndpoint
 from .serializers import EventOutboxSerializer, WebhookDeliverySerializer, WebhookEndpointSerializer
@@ -16,7 +16,8 @@ class WebhookEndpointViewSet(OrganizationScopedQuerySetMixin, viewsets.ModelView
     feature_flag_key = 'webhook_lab'
     queryset = WebhookEndpoint.objects.select_related('organization').all().order_by('name')
     serializer_class = WebhookEndpointSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [OrganizationRolePermission]
+    write_roles = OrganizationRolePermission.write_roles
 
     @decorators.action(detail=True, methods=['post'], url_path='test')
     def test(self, request, pk=None):
@@ -87,14 +88,16 @@ class EventOutboxViewSet(OrganizationScopedQuerySetMixin, viewsets.ModelViewSet)
     feature_flag_key = 'webhook_lab'
     queryset = EventOutbox.objects.select_related('organization').all()
     serializer_class = EventOutboxSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [OrganizationRolePermission]
+    write_roles = OrganizationRolePermission.write_roles
 
 
 class WebhookDeliveryViewSet(OrganizationScopedQuerySetMixin, viewsets.ModelViewSet):
     feature_flag_key = 'webhook_lab'
     queryset = WebhookDelivery.objects.select_related('endpoint', 'event').all()
     serializer_class = WebhookDeliverySerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [OrganizationRolePermission]
+    write_roles = OrganizationRolePermission.write_roles
 
     @decorators.action(detail=True, methods=['post'])
     def replay(self, request, pk=None):

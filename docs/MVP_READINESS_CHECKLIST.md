@@ -2,6 +2,23 @@
 
 Use this checklist before removing `hanmak_demo_mock_directory/` or inviting MVP/beta users to the React frontend.
 
+## Feature Scan Coverage
+
+The MVP review must cover every feature group currently exposed by React routes and backend APIs:
+
+- Auth, account setup, invitation acceptance, profile, sessions, MFA, passkeys, and recovery.
+- Dashboard, inbox, global search, analytics summaries, task counts, and recent activity.
+- Templates, Form Builder, workflow-backed templates, documents/File Library, page rendering, and multi-page preview.
+- Envelopes, recipients, reminders, voiding, bulk actions, public signing, decline, delegate, attachments, completed view, and signed PDF download.
+- Workflow Builder, workflow runs/events, workflow-backed envelope auto-start, approvals, and manual run advancement.
+- Audit Trail, evidence bundles, signed PDF generation, verification, and visual QA.
+- Admin users, organizations, domains, teams, memberships, roles, permissions, and impersonation/session controls.
+- Settings for general behavior, branding, email/SMTP, storage, security, notifications, SSO, SCIM, LDAP, JIT, and social providers.
+- System health, deployment readiness, incidents, background tasks, task events, worker diagnostics, and frontend error log.
+- Compliance legal holds, retention, data residency, and exports.
+- Billing, subscriptions, usage, invoices, payment methods, payment webhooks, license keys, and licensed features.
+- Developer surfaces: API keys/logs, OAuth apps/grants, webhooks/outbox/deliveries, API docs, Test Lab, email messages/templates, operations console, risk/policy/search controls, and release control.
+
 ## Automated Gates
 
 - [x] Backend system check passes: `docker compose -f docker-compose.dev.yml exec -T backend python manage.py check`.
@@ -41,6 +58,7 @@ Use this checklist before removing `hanmak_demo_mock_directory/` or inviting MVP
 - [ ] Generate and download the signed PDF and verify field placement visually.
 - [ ] Verify audit/evidence bundle generation and evidence hash verification.
 - [ ] Exercise admin/user/session/MFA views, settings saves, billing, webhooks, release control, and system health actions.
+- [ ] Exercise search, profile, Signing Sessions Admin, Error Log, compliance exports, data residency, OAuth grants, API request logs, event outbox, risk findings, policy rules, and search-index rebuild.
 - [ ] Test the public signing flow on a mobile-width viewport.
 
 ## Mock Removal Criteria

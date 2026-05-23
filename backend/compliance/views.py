@@ -1,7 +1,7 @@
 from django.utils import timezone
 from rest_framework import decorators, permissions, response, viewsets
 
-from accounts.permissions import OrganizationScopedQuerySetMixin
+from accounts.permissions import OrganizationRolePermission, OrganizationScopedQuerySetMixin
 
 from .models import ComplianceExport, DataResidencyRegion, LegalHold, LegalHoldItem, OrganizationDataResidencyPolicy, RetentionPolicy
 from .serializers import (
@@ -18,7 +18,8 @@ class LegalHoldViewSet(OrganizationScopedQuerySetMixin, viewsets.ModelViewSet):
     feature_flag_key = 'legal_holds'
     queryset = LegalHold.objects.select_related('organization', 'created_by').all().order_by('-created_at')
     serializer_class = LegalHoldSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [OrganizationRolePermission]
+    write_roles = OrganizationRolePermission.write_roles
 
     @decorators.action(detail=True, methods=['post'])
     def release(self, request, pk=None):
@@ -33,21 +34,24 @@ class LegalHoldItemViewSet(OrganizationScopedQuerySetMixin, viewsets.ModelViewSe
     feature_flag_key = 'legal_holds'
     queryset = LegalHoldItem.objects.select_related('legal_hold').all()
     serializer_class = LegalHoldItemSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [OrganizationRolePermission]
+    write_roles = OrganizationRolePermission.write_roles
 
 
 class RetentionPolicyViewSet(OrganizationScopedQuerySetMixin, viewsets.ModelViewSet):
     feature_flag_key = 'retention_policies'
     queryset = RetentionPolicy.objects.select_related('organization').all().order_by('name')
     serializer_class = RetentionPolicySerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [OrganizationRolePermission]
+    write_roles = OrganizationRolePermission.write_roles
 
 
 class ComplianceExportViewSet(OrganizationScopedQuerySetMixin, viewsets.ModelViewSet):
     feature_flag_key = 'compliance_exports'
     queryset = ComplianceExport.objects.select_related('organization', 'requested_by').all().order_by('-created_at')
     serializer_class = ComplianceExportSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [OrganizationRolePermission]
+    write_roles = OrganizationRolePermission.write_roles
 
 
 class DataResidencyRegionViewSet(viewsets.ModelViewSet):
@@ -60,7 +64,8 @@ class OrganizationDataResidencyPolicyViewSet(OrganizationScopedQuerySetMixin, vi
     feature_flag_key = 'data_residency'
     queryset = OrganizationDataResidencyPolicy.objects.select_related('organization', 'primary_region').prefetch_related('allowed_regions').all().order_by('organization__name')
     serializer_class = OrganizationDataResidencyPolicySerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [OrganizationRolePermission]
+    write_roles = OrganizationRolePermission.write_roles
 
     @decorators.action(detail=False, methods=['get'])
     def summary(self, request):

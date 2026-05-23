@@ -18,6 +18,17 @@ function titleCase(str) {
   return (str || '').split('_').map(p => p.charAt(0).toUpperCase() + p.slice(1)).join(' ');
 }
 
+function uniqueEnvelopeDocuments(docs = []) {
+  const seen = new Set();
+  return docs.filter((entry) => {
+    const docId = entry.document ?? entry.document_detail?.id ?? entry.id;
+    const key = docId ? `doc:${docId}` : `entry:${entry.id ?? `${entry.order ?? ''}:${entry.document_detail?.title ?? entry.name ?? ''}`}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 const STATUS_OPTIONS = [
   { value: '', label: 'All Status' },
   { value: 'draft', label: 'Draft' },
@@ -65,7 +76,7 @@ export default function EnvelopeList() {
     { envelope: drawerEnvelope?.id, page_size: 20 },
     { enabled: !!drawerEnvelope?.id }
   );
-  const envelopeDocs = envelopeDocsData?.results ?? [];
+  const envelopeDocs = uniqueEnvelopeDocuments(envelopeDocsData?.results ?? []);
 
   // Create envelope modal
   const [createModal, setCreateModal] = useState(false);

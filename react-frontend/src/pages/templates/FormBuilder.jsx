@@ -80,6 +80,7 @@ const FIELD_GROUPS = [
 ];
 
 const DOC_WIDTH = 1040;
+const HUMAN_WORKFLOW_STAGE_TYPES = new Set(['signing', 'approval', 'review']);
 
 // ─── Client-side PDF rendering ────────────────────────────────────────────────
 
@@ -121,6 +122,42 @@ function fieldKey(field, index) {
     .slice(0, 48) || `field-${index + 1}`;
 }
 
+function normalizeWorkflowStage(stage, index) {
+  const stageType = stage.stage_type || stage.type || 'approval';
+  const key = stage.key || `stage_${index + 1}`;
+  return {
+    key,
+    label: stage.label || key.replace(/[-_]/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
+    stage_type: stageType,
+    order: stage.order || index + 1,
+    party_key: HUMAN_WORKFLOW_STAGE_TYPES.has(stageType) ? (stage.party_key || key) : '',
+    config: stage.config || {},
+  };
+}
+
+function buildWorkflowSchema(workflow) {
+  if (!workflow) return {};
+  return {
+    workflow_definition_id: workflow.id,
+    workflow_name: workflow.name,
+    stages: (workflow.stages || [])
+      .slice()
+      .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+      .map(normalizeWorkflowStage),
+  };
+}
+
+function partiesFromWorkflowSchema(workflowSchema) {
+  const stages = workflowSchema?.stages || [];
+  return stages
+    .filter((stage) => HUMAN_WORKFLOW_STAGE_TYPES.has(stage.stage_type) && stage.party_key)
+    .map((stage, index) => ({
+      id: stage.party_key,
+      name: stage.label,
+      color: PARTY_COLORS[index % PARTY_COLORS.length],
+    }));
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function FormBuilder() {
@@ -128,6 +165,7 @@ export default function FormBuilder() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const docParam = searchParams.get('doc'); // specific document ID passed from template creation
+  const workflowParam = searchParams.get('workflow'); // optional workflow ID passed from template creation
   const toast = useToast();
 
   // ── State ──────────────────────────────────────────────────────────────────
@@ -149,6 +187,7 @@ export default function FormBuilder() {
   const [showAddParty, setShowAddParty] = useState(false);
   const [editingPartyId, setEditingPartyId] = useState(null);
   const [editField, setEditField] = useState(null); // snapshot for inspector
+  const [workflowSchema, setWorkflowSchema] = useState({});
 
   // Drag state kept in ref to avoid re-renders
   const dragRef = useRef({ active: false, fieldIdx: null, startX: 0, startY: 0, origX: 0, origY: 0 });
@@ -169,6 +208,13 @@ export default function FormBuilder() {
     templateId ? EP.TEMPLATE_VERSIONS : null,
     { template: templateId },
     { enabled: !!templateId },
+  );
+
+  const { data: workflowsData } = useApiQuery(
+    ['workflows-for-template-builder'],
+    EP.WORKFLOWS,
+    { status: 'active', page_size: 100 },
+    { enabled: !!workflowParam },
   );
 
   // ── Derive the document ID from the loaded version (for existing templates) ──
@@ -208,12 +254,30 @@ export default function FormBuilder() {
     }
   }, [templateData]);
 
+  useEffect(() => {
+    if (!workflowParam || !workflowsData) return;
+    const workflows = workflowsData.results || workflowsData || [];
+    const selectedWorkflow = workflows.find((workflow) => String(workflow.id) === String(workflowParam) && workflow.status === 'active');
+    if (!selectedWorkflow) return;
+    const schema = buildWorkflowSchema(selectedWorkflow);
+    setWorkflowSchema(schema);
+    const workflowParties = partiesFromWorkflowSchema(schema);
+    if (workflowParties.length > 0) {
+      setParties(workflowParties);
+      setActivePartyIdx(0);
+    }
+  }, [workflowParam, workflowsData]);
+
   // ── Load fields and parties from template version ──────────────────────────
   useEffect(() => {
     if (!versionsData) return;
     const versions = versionsData.results || versionsData;
     const latest = versions[0];
     if (!latest) return;
+
+    if (latest.workflow_schema?.workflow_definition_id) {
+      setWorkflowSchema(latest.workflow_schema);
+    }
 
     // Restore saved party names from the stored TemplateParty records
     if (Array.isArray(latest.parties) && latest.parties.length > 0) {
@@ -588,6 +652,10 @@ export default function FormBuilder() {
       toast.error('No document loaded — upload a PDF first via the Documents page');
       return;
     }
+    if (workflowParam && !workflowSchema.workflow_definition_id) {
+      toast.error('Workflow is still loading or is not active. Choose an active workflow first.');
+      return;
+    }
     setSaving(true);
     try {
       // Persist any name change first (non-critical, ignore failure)
@@ -601,6 +669,7 @@ export default function FormBuilder() {
         changelog: 'Updated via Form Builder',
         // Pass party labels so custom names (e.g. "Buyer") are persisted
         parties: parties.map((p) => ({ key: p.id, label: p.name })),
+        workflow_schema: workflowSchema.workflow_definition_id ? workflowSchema : {},
       });
       // saveMutation.onSuccess handles toast.success and navigate
     } catch {
@@ -608,7 +677,7 @@ export default function FormBuilder() {
     } finally {
       setSaving(false);
     }
-  }, [fields, parties, templateName, pageImages, serializeFields, saveMutation, templateId, toast]);
+  }, [fields, parties, templateName, pageImages, serializeFields, saveMutation, templateId, toast, workflowParam, workflowSchema]);
 
   // ── Render ────────────────────────────────────────────────────────────────
   const selectedField = selectedFieldIdx !== null ? fields[selectedFieldIdx] : null;
@@ -672,6 +741,11 @@ export default function FormBuilder() {
             }}
           />
           <span className="badge badge-warning">Draft</span>
+          {workflowSchema.workflow_definition_id && (
+            <span className="badge badge-info" title="This template uses workflow stages as parties">
+              {workflowSchema.workflow_name || 'Workflow'}
+            </span>
+          )}
         </div>
 
         {/* Party tabs */}

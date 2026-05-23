@@ -2,17 +2,15 @@ from django.utils import timezone
 from rest_framework import decorators, permissions, response, viewsets
 
 from accounts.permissions import OrganizationScopedQuerySetMixin
-from envelopes.models import Envelope, Recipient
-from messaging.services import queue_completion_emails
-from messaging.tasks import deliver_email_message_task
 
 from .models import ApprovalRequest
 from .serializers import ApprovalRequestSerializer
+from .services import decide_approval
 
 
 class ApprovalRequestViewSet(OrganizationScopedQuerySetMixin, viewsets.ModelViewSet):
     feature_flag_key = 'approval_queue'
-    queryset = ApprovalRequest.objects.select_related('envelope', 'approver', 'delegated_to').all().order_by('-created_at')
+    queryset = ApprovalRequest.objects.select_related('envelope', 'approver', 'delegated_to', 'recipient').all().order_by('-created_at')
     serializer_class = ApprovalRequestSerializer
     permission_classes = [permissions.IsAuthenticated]
 
@@ -25,25 +23,13 @@ class ApprovalRequestViewSet(OrganizationScopedQuerySetMixin, viewsets.ModelView
 
     def _decide(self, status_value):
         approval = self.get_object()
-        approval.status = status_value
-        approval.decided_at = timezone.now()
-        approval.notes = self.request.data.get('notes', approval.notes)
-        approval.save(update_fields=['status', 'decided_at', 'notes'])
-        if status_value == ApprovalRequest.Status.APPROVED:
-            envelope = approval.envelope
-            if not envelope.approval_requests.exclude(status=ApprovalRequest.Status.APPROVED).exists():
-                envelope.recipients.filter(role=Recipient.Role.APPROVER, status__in=[Recipient.Status.PENDING, Recipient.Status.SENT, Recipient.Status.VIEWED]).update(
-                    status=Recipient.Status.SIGNED,
-                    signed_at=timezone.now(),
-                )
-                active_recipients = envelope.recipients.exclude(role=Recipient.Role.CC).exclude(status=Recipient.Status.DELEGATED)
-                if not active_recipients.exclude(status=Recipient.Status.SIGNED).exists():
-                    envelope.status = Envelope.Status.COMPLETED
-                    envelope.completed_at = timezone.now()
-                    envelope.save(update_fields=['status', 'completed_at', 'updated_at'])
-                    messages = queue_completion_emails(envelope, queued_by=self.request.user, request=self.request)
-                    for message in messages:
-                        deliver_email_message_task.apply_async(args=[message.id], queue='email')
+        decide_approval(
+            approval,
+            status_value,
+            notes=self.request.data.get('notes', approval.notes),
+            request=self.request,
+            actor=self.request.user,
+        )
         return response.Response(self.get_serializer(approval).data)
 
     @decorators.action(detail=True, methods=['post'])

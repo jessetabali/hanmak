@@ -2,6 +2,23 @@
 
 Use this checklist before calling an environment production-ready.
 
+## Production Feature Surface
+
+Before go-live, verify the hardening posture for every feature group exposed by the app:
+
+| Feature group | Production hardening check |
+|---|---|
+| Auth, setup, profile | TLS-only cookies, JWT refresh behavior, invite/setup token expiry, MFA/passkey policy, recovery throttles, session revocation. |
+| Dashboard, inbox, search | Tenant-scoped data, search index freshness, task visibility, no cross-organization records in summaries. |
+| Templates, documents, envelopes, signing | Private media policy, PDF rendering dependencies, object storage backups, public signing throttles, token-gated download access, signed PDF generation. |
+| Workflow and approvals | Feature flags, organization scoping, audit events, manual advance permissions, approval action permissions. |
+| Audit and evidence | Immutable event retention, evidence hash verification, signed PDF artifact access, consent/signature records. |
+| Admin, settings, identity | Role restrictions, organization switching, branding/logo upload storage, SMTP secrets, SSO/SCIM/LDAP certificates and tokens. |
+| System operations | Health checks, readiness checks, incidents, background workers, scheduler visibility, task retry/cancel permissions, frontend error capture. |
+| Compliance | Legal hold delete blocking, retention policies, data residency rules, compliance export access and storage. |
+| Billing/license | Payment webhook secrets, portal/checkout redirect domains, invoice/payment method visibility, license key handling. |
+| Developer/integrations | API key storage/rotation, OAuth secret hashing, webhook signing/replay controls, request logs, risk/policy/search-index operations, release-control permissions. |
+
 ## TLS And Domains
 
 - Set `HANMAK_PRIMARY_DOMAIN` to the public app domain.

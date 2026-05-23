@@ -1,7 +1,7 @@
-from rest_framework import permissions, viewsets
+from rest_framework import viewsets
 from django.db.models import Q
 
-from accounts.permissions import OrganizationScopedQuerySetMixin
+from accounts.permissions import OrganizationRolePermission, OrganizationScopedQuerySetMixin
 
 from .models import AuditEvent
 from .serializers import AuditEventSerializer
@@ -11,7 +11,8 @@ class AuditEventViewSet(OrganizationScopedQuerySetMixin, viewsets.ModelViewSet):
     feature_flag_key = 'audit_evidence'
     queryset = AuditEvent.objects.select_related('organization', 'envelope', 'actor').all()
     serializer_class = AuditEventSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [OrganizationRolePermission]
+    write_roles = OrganizationRolePermission.write_roles
 
     def get_queryset(self):
         queryset = super().get_queryset()

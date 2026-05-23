@@ -122,6 +122,14 @@ def can_stamp_source_pdf():
 
 
 def field_value_record(envelope, field):
+    if getattr(field, 'id', None):
+        value = envelope.field_values.filter(field=field).first()
+        if value:
+            return value
+    if field.recipient_id:
+        value = envelope.field_values.filter(field_key=field.field_key, recipient=field.recipient).first()
+        if value:
+            return value
     return envelope.field_values.filter(field_key=field.field_key).first()
 
 

@@ -52,7 +52,7 @@ class RecipientSerializer(serializers.ModelSerializer):
         model = Recipient
         fields = [
             'id', 'envelope', 'delegated_from', 'name', 'email', 'role', 'status',
-            'routing_order', 'signed_at', 'delegated_at', 'delegation_reason', 'created_at',
+            'party_key', 'routing_order', 'signed_at', 'delegated_at', 'delegation_reason', 'created_at',
         ]
         read_only_fields = ['id', 'created_at']
         extra_kwargs = {'envelope': {'required': False}}
@@ -69,6 +69,7 @@ class TemplateSetupSerializer(serializers.Serializer):
     fields = serializers.ListField(child=serializers.DictField(), required=False)
     changelog = serializers.CharField(required=False, allow_blank=True)
     parties = serializers.ListField(child=serializers.DictField(), required=False, default=list)
+    workflow_schema = serializers.DictField(required=False, default=dict)
 
 
 class TemplateEnvelopeRecipientSerializer(serializers.Serializer):
@@ -192,9 +193,10 @@ class EnvelopeSerializer(serializers.ModelSerializer):
         recipients_data = validated_data.pop('recipients', [])
         envelope = Envelope.objects.create(**validated_data)
         for index, recipient_data in enumerate(recipients_data, start=1):
-            recipient_data.pop('envelope', None)
-            recipient_data.setdefault('routing_order', index)
-            Recipient.objects.create(envelope=envelope, **recipient_data)
+                recipient_data.pop('envelope', None)
+                recipient_data.setdefault('routing_order', index)
+                recipient_data.setdefault('party_key', '')
+                Recipient.objects.create(envelope=envelope, **recipient_data)
         return envelope
 
     def update(self, instance, validated_data):
@@ -212,6 +214,7 @@ class EnvelopeSerializer(serializers.ModelSerializer):
             for index, recipient_data in enumerate(recipients_data, start=1):
                 recipient_data.pop('envelope', None)
                 recipient_data.setdefault('routing_order', index)
+                recipient_data.setdefault('party_key', '')
                 created_recipients.append(Recipient.objects.create(envelope=instance, **recipient_data))
             for index, fields in field_assignments.items():
                 if index < len(created_recipients):

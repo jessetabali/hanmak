@@ -8,5 +8,5 @@ class ApprovalRequestSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = ApprovalRequest
-        fields = ['id', 'envelope', 'approver', 'approver_username', 'approval_role', 'status', 'notes', 'due_at', 'decided_at', 'delegated_to', 'created_at']
+        fields = ['id', 'envelope', 'approver', 'approver_username', 'recipient', 'approval_role', 'status', 'notes', 'due_at', 'decided_at', 'delegated_to', 'created_at']
         read_only_fields = ['id', 'decided_at', 'created_at']

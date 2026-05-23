@@ -4,6 +4,24 @@
 
 This document describes the current beta posture for `hanmak_demo_mock_directory`.
 
+## Feature Coverage For Beta Review
+
+Use this feature-by-feature scan when deciding which modules to expose to beta testers through Release Control:
+
+| Feature group | Beta review focus |
+|---|---|
+| Auth, account setup, invites, profile | Real accounts, invite/setup token paths, session/MFA/passkey behavior, password/profile changes. |
+| Dashboard, inbox, search | Real organization metrics, task counts, signer/approval visibility, failed-task handling, indexed search results. |
+| Templates, Form Builder, documents | Real PDF uploads, page rendering, field placement, party assignment, workflow-backed template setup, multi-page preview. |
+| Envelopes and public signing | Create-from-template, recipient mapping, send/remind/void, routing order, first-signer signature display, carry-forward fields, decline/delegate/download. |
+| Workflow and approvals | Workflow activation validation, workflow-backed envelope auto-start, run stage/party display, manual advance, approval approve/reject/request-changes/delegate. |
+| Audit and evidence | Audit filtering, evidence bundle generation, signed PDF generation, hash verification, visual QA metadata. |
+| Admin and settings | Users, organizations, teams, roles, branding, email/SMTP, storage, security, notifications, SSO/SCIM/LDAP/JIT/social settings. |
+| System operations | Health checks, readiness/APM config, incidents, background task definitions/runs/events, frontend error log, worker diagnostics. |
+| Compliance | Legal holds, retention policies, data residency, compliance exports, and delete-blocking behavior. |
+| Billing and license | Plans, subscriptions, usage, invoices, payment methods, payment webhook history, license keys, licensed features. |
+| Developer and integrations | API keys, OAuth apps/grants, webhooks/deliveries/outbox, API docs, Test Lab, email messages/templates, operations console, release control. |
+
 ## Beta Mode
 
 The frontend loads `beta-config.js` before the API client:
@@ -70,9 +88,9 @@ The frontend scan still shows these intentional development surfaces:
 
 ## React Production Frontend Status
 
-The React production frontend (`react-frontend/`) reached **full implementation** on 2026-05-18 with subsequent integration rounds on 2026-05-20. All 44 pages are live-wired to the Django/DRF backend. Current state:
+The React production frontend (`react-frontend/`) reached **full implementation** on 2026-05-18 with subsequent integration rounds on 2026-05-20. All 46 lazy-loaded pages are live-wired to the Django/DRF backend. Current state:
 
-- **Done:** Full route map, Axios + JWT client, TanStack Query wrappers, authStore (Zustand), AppShell + Sidebar + Topbar, SettingsLayout with nested routes, Toast context, all 44 pages fully implemented.
+- **Done:** Full route map, Axios + JWT client, TanStack Query wrappers, authStore (Zustand), AppShell + Sidebar + Topbar, SettingsLayout with nested routes, Toast context, all 46 lazy-loaded pages fully implemented.
 - **Done:** All critical bugs fixed — auth endpoints corrected, blob download for authenticated files, organization FK on all creates, ToastContext shortcuts, EvidenceBundle create flow, signing submit/decline URL and payload, FormBuilder page loading, PublicSigning pages path.
 - **Done (2026-05-20):** Template and Envelope creation modals fully match the mock — async multi-step flows, party/role assignment, document attachment, "Save Draft" and "Create & Send" actions.
 - **Done (2026-05-20):** UI/UX modernized — DM Sans font, card shadows, button animations, modal backdrop blur, toast accent bars.

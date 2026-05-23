@@ -29,6 +29,33 @@ localStorage.setItem('HANMAK_API_BASE_URL', 'http://127.0.0.1:8080/api/v1')
 location.reload()
 ```
 
+## 1.1 Feature Inventory
+
+This feature list was scanned from the React route map, backend API registry, and backend apps. Use it as the operator-facing index for the app.
+
+| Feature | Where to open it | What users can do |
+|---|---|---|
+| Login, account setup, invite acceptance | `/login`, `/account-setup`, `/accept-invite` | Sign in, accept invitations, complete account setup, and enter the authenticated app shell. |
+| Dashboard | `/dashboard` | Review completion metrics, pending tasks, recent activity, workflow snapshots, webhook/API summaries, and quick actions. |
+| Inbox / My Tasks | `/inbox` | Work signing, approval, and failed-task items with filters, bulk actions, delegation, retry, cancel, and completed-task history. |
+| Global Search | `/search` | Search indexed envelopes, templates, documents, users, tasks, and operational records from one page. |
+| Profile and security | `/profile` | Manage profile details, password, sessions, MFA/passkeys, notification preferences, and recent activity. |
+| Templates | `/templates` | Create, duplicate, archive, activate, preview, delete, and use reusable templates. |
+| Form Builder | `/form-builder/:templateId?` | Place fields on documents, assign parties, resize fields, rename parties, preview forms, and save workflow-backed or standalone templates. |
+| File Library | `/documents` | Upload, rename, duplicate, process, scan, render, preview, download, delete, and open source documents in Form Builder. |
+| Envelopes | `/envelopes`, `/envelopes/:id` | Create envelopes from templates, assign recipients, send, remind, void, bulk action, view attachments, and download signed PDFs. |
+| Signing Sessions Admin | `/signing` | Inspect signing sessions and launch public signer links for testing or support. |
+| Public Signing | `/sign/:token` | Let external recipients consent, fill fields, sign, upload attachments, decline, delegate, revisit completed documents, and download signed PDFs. |
+| Workflow Builder | `/workflow` | Build staged workflows, activate/archive definitions, start runs, view stages/parties/events, and review automatic or manual stage advancement. |
+| Approval Queue | `/approvals` | Approve, reject, request changes, delegate, export, and review approval context. |
+| Audit Trail and Evidence Bundles | `/audit`, `/evidence-bundles` | Search audit events, generate evidence bundles, generate signed PDFs, verify hashes, and run visual QA checks. |
+| Admin | `/admin/users`, `/admin/organizations`, `/admin/teams`, `/admin/roles` | Manage users, organizations, domains, teams, memberships, roles, permissions, sessions, MFA, invitations, and impersonation requests. |
+| Settings | `/settings/*` | Configure general settings, branding, SMTP/email, storage, security policy, notifications, SSO, SCIM, LDAP, JIT, and social providers. |
+| System Operations | `/system/health`, `/system/tasks`, `/system/error-log` | Monitor health checks, incidents, readiness, background tasks, task definitions, task events, worker data, and frontend error reports. |
+| Compliance | `/compliance/*` | Manage legal holds, retention policies, data residency regions/policies, and compliance exports. |
+| Billing and License | `/billing`, `/license` | Review plans, subscriptions, usage, invoices, payment methods, portal handoffs, webhook events, license keys, and licensed features. |
+| Developer Tools | `/developer/*` | Manage API keys, OAuth apps/grants, webhooks/deliveries, API docs, Test Lab, email messages/templates, operations console records, and release control. |
+
 ## 2. Release Control
 
 Use **Developer → Release Control** as the control panel for feature rollout.
@@ -129,7 +156,7 @@ Typical flow:
 3. Open **Form Builder**.
 4. Upload a PDF/document, open a File Library document in the builder, or use the sample.
 5. Drag fields onto the document.
-6. Assign fields to Party 1, Party 2, Party 3, or a custom party key.
+6. Assign fields to Party 1, Party 2, Party 3, a custom party key, or a workflow-derived party when the template is built from an active workflow.
 7. Save the template.
 
 Field placement is page-aware. Dragged and resized fields are kept inside the current page, and saved templates preserve the page size plus normalized coordinates so envelopes and public signing links render the fields in the same location. HanMak renders stored page previews on a fixed 1040px-wide coordinate basis; A4-style fallback pages are about 1471px tall, while uploaded pages keep their aspect ratio. Each field stores the exact page width and height basis used when it was placed, so downloaded signed PDFs use the same placement basis as the browser preview.
@@ -138,6 +165,8 @@ Use **Preview** in the Form Builder toolbar to open a signer-style preview of th
 **Resizing fields:** Click a field to select it, then drag any of the four corner handles (square dots at the corners) to resize it. The opposite corner stays pinned.
 
 **Renaming parties:** Double-click a party tab (e.g. "Party 1") in the top bar to rename it inline. Press Enter or click away to confirm; press Escape to cancel. Custom party names are saved with the template and reflected in envelope creation (e.g. "Buyer", "Seller").
+
+**Workflow-backed templates:** A template can be created with no workflow, or it can be linked to an active workflow that was defined first in Workflow Builder. When a workflow is selected, signing, approval, and review stages become template parties. Envelope creation then requires recipients for those parties, and sending the envelope starts a workflow run automatically.
 
 Supported field types include:
 
@@ -210,7 +239,7 @@ Public signing supports:
 - Decline signing with a reason
 
 Date fields render as date pickers, dropdown fields render as select menus, and attachment fields render as upload controls on the public signing page. Typed signatures include signer-facing style controls for script/serif/sans/mono appearance, color, size, bold, and italic styling.
-Filled fields lose their editable outline once completed. After submission, later signers, completed signing, envelope details, and approval review render the document as a filled form: previously submitted values are printed in place with readable sizing, typed-signature styling is preserved, and drawn/uploaded signatures are overlaid as signature images rather than placeholder text. Signed PDF generation prefers the same stored page-preview image used by the browser overlay, so downloaded PDFs match the on-screen placement more closely.
+Filled fields lose their editable outline once completed. After submission, later signers, completed signing, envelope details, and approval review render the document as a filled form: previously submitted values are printed in place with readable sizing, typed-signature styling is preserved, and drawn/uploaded signatures are overlaid as signature images rather than placeholder text. Shared/unassigned fields completed by the first signer are shown as read-only completed fields for later parties instead of reappearing as blank fields. Signed PDF generation prefers the same stored page-preview image used by the browser overlay, so downloaded PDFs match the on-screen placement more closely.
 
 Each signer can only fill fields assigned to them or shared/unassigned fields. A signer cannot fill another recipient's fields unless the task has been delegated.
 
@@ -240,6 +269,8 @@ Capabilities:
 
 Workflows must have at least one stage before activation.
 
+When a workflow-backed envelope includes an approval party, that party receives the same secure envelope link pattern as a signer. Opening the link shows an approval-focused review screen. Clicking **Approve Document** records the approval, marks the approver recipient complete, updates the Approval Queue record, and advances the matching workflow stage when the recipient `party_key` matches the current stage key.
+
 > **How it works under the hood:** For the full technical explanation of the Workflow Builder data model, API endpoints, stage types, advance mechanics, validation rules, and how Workflow Builder relates to Templates and Envelopes, see `docs/HOW_IT_WORKS.md` — Sections 6 and 7.
 
 ## 8. Approval Queue
@@ -255,6 +286,7 @@ Use **Approval Queue** to manage approval work:
 - Open detail view with notes, timing, assignee, status, and related envelope context
 
 Pending approval records can be approved, rejected, sent back for changes, delegated, or opened with the related envelope from the detail view.
+Approvals can also be completed through the public envelope approval link. That path updates the same Approval Queue record, so managers see the approval status change without needing to approve it separately inside the queue.
 
 ## 9. Audit And Evidence
 
@@ -305,9 +337,19 @@ The Admin section includes:
 - Background Tasks
 - System Health
 
-Admin users can create managed users, invite users, manage teams, assign custom roles, edit role permissions, review impersonation requests, revoke sessions, monitor task queues, and inspect system health. Built-in roles are **Super Admin**, **Admin**, **Manager**, **Signer**, and **Viewer**. Super Admin is an app-level operator role: it can see organizations globally, switch organization context, create users/invitations for any organization, create root organizations, manage billing/license records across organizations, and perform direct organization cleanup when the backend permits it.
+Admin users can create managed users, invite users, manage teams, assign custom roles, edit role permissions, review impersonation requests, revoke sessions, monitor task queues, and inspect system health. There are **five built-in roles**: **Super Admin**, **Admin**, **Manager**, **Signer**, and **Viewer**.
+
+| Role | What it can do |
+|---|---|
+| Super Admin | App-level operator. Sees all organizations, can switch organization context, create root organizations, manage cross-organization users/invitations, billing, licenses, and direct organization cleanup where permitted. |
+| Admin | Full administration inside its organization. Can manage users, teams, roles, settings, templates, envelopes, workflows, billing, compliance, developer integrations, and operations records. |
+| Manager | Operational manager inside its organization. Can write most day-to-day feature records such as envelopes, templates, workflows, reminders, billing sessions, compliance records, API keys, OAuth apps, and webhooks. |
+| Signer | Participant role for inbox, signing, and assigned document work. Public signing links remain token-scoped and do not require an authenticated admin session. |
+| Viewer | Read-oriented organization member. Can inspect scoped resources but cannot save/delete/send/administer unless a custom role or object grant adds permission. |
 
 Teams and Roles support full create, edit, and delete flows. System roles cannot be deleted. Team and role changes are recorded in the admin audit trail.
+
+The local demo seed creates `admin / admin123` as a Super Admin. Operators can also run `python manage.py seed_super_admin --username superadmin --email superadmin@example.com --password superadmin123` to create a single root super-admin account.
 
 Background Tasks shows live queue totals, task runs, task definitions, worker inspect details when available, and clear empty-state messages when no runs have been recorded. Use retry, cancel, purge, and log actions from this page when investigating failed work.
 

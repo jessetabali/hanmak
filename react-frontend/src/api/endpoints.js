@@ -78,6 +78,8 @@ export const EP = {
   // Workflow
   WORKFLOWS: '/workflows/',
   WORKFLOW: (id) => `/workflows/${id}/`,
+  WORKFLOW_ACTIVATE: (id) => `/workflows/${id}/activate/`,
+  WORKFLOW_ARCHIVE: (id) => `/workflows/${id}/archive/`,
   WORKFLOW_REPLACE_STAGES: (id) => `/workflows/${id}/replace-stages/`,
   WORKFLOW_RUNS: '/workflow-runs/',
   WORKFLOW_RUN: (id) => `/workflow-runs/${id}/`,
@@ -143,11 +145,14 @@ export const EP = {
   RETENTION_POLICIES: '/retention-policies/',
   DATA_RESIDENCY_REGIONS: '/data-residency-regions/',
   DATA_RESIDENCY_POLICIES: '/data-residency-policies/',
+  DATA_RESIDENCY_POLICIES_SUMMARY: '/data-residency-policies/summary/',
   COMPLIANCE_EXPORTS: '/compliance-exports/',
 
   // Billing
   PLANS: '/plans/',
   SUBSCRIPTIONS: '/subscriptions/',
+  SUBSCRIPTION_CHECKOUT_SESSION: '/subscriptions/checkout-session/',
+  SUBSCRIPTION_BILLING_PORTAL: '/subscriptions/billing-portal/',
   INVOICES: '/invoices/',
   PAYMENT_METHODS: '/payment-methods/',
   PAYMENT_PORTAL_SESSIONS: '/payment-portal-sessions/',

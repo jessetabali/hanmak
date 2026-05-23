@@ -1,7 +1,7 @@
 from django.conf import settings
 from django.db import models
 
-from envelopes.models import Envelope
+from envelopes.models import Envelope, Recipient
 
 
 class ApprovalRequest(models.Model):
@@ -14,6 +14,7 @@ class ApprovalRequest(models.Model):
 
     envelope = models.ForeignKey(Envelope, related_name='approval_requests', on_delete=models.CASCADE)
     approver = models.ForeignKey(settings.AUTH_USER_MODEL, related_name='approval_requests', on_delete=models.PROTECT)
+    recipient = models.ForeignKey(Recipient, related_name='approval_requests', null=True, blank=True, on_delete=models.SET_NULL)
     approval_role = models.CharField(max_length=128)
     status = models.CharField(max_length=32, choices=Status.choices, default=Status.PENDING)
     notes = models.TextField(blank=True)

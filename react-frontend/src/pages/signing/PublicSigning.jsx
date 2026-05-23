@@ -82,6 +82,33 @@ function FieldValueDisplay({ value, fieldType, heightPx, style = {} }) {
   return <span style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', ...style }}>{String(value)}</span>;
 }
 
+function serializeFieldValueForSubmit(value) {
+  if (value instanceof File) return '';
+  if (value && typeof value === 'object' && value.type) {
+    return value.type === 'typed'
+      ? `[TYPED:${value.name}|${value.font}|${value.color}]`
+      : value.dataUrl || '';
+  }
+  return value ?? '';
+}
+
+function submittedValueForField(values = [], field, preferredRecipientId = null) {
+  const fieldId = field?.id;
+  const fieldKey = field?.field_key;
+  const targetRecipientId = field?.recipient || preferredRecipientId;
+  const keyMatches = values.filter((value) => fieldKey && value.field_key === fieldKey);
+  return (
+    values.find((value) => fieldId != null && String(value.field || '') === String(fieldId))
+    || values.find((value) => (
+      fieldKey
+      && value.field_key === fieldKey
+      && targetRecipientId != null
+      && String(value.recipient || '') === String(targetRecipientId)
+    ))
+    || (field?.recipient ? null : keyMatches[0])
+  );
+}
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export default function PublicSigning() {
@@ -105,6 +132,7 @@ export default function PublicSigning() {
   const [typedColor, setTypedColor] = useState(SIG_COLORS[0].value);
   const [uploadPreview, setUploadPreview] = useState(null);
   const [submitted, setSubmitted] = useState(false);
+  const [submittedSession, setSubmittedSession] = useState(null);
   const [declined, setDeclined] = useState(false);
   const [delegated, setDelegated] = useState(null);
   const [declineModal, setDeclineModal] = useState(false);
@@ -207,6 +235,7 @@ export default function PublicSigning() {
 
   const envelopeName = session?.envelope_subject || session?.envelope_name || 'Document Signing';
   const signerName = session?.signer_name || session?.recipient_name || '';
+  const isApprover = session?.recipient_detail?.role === 'approver';
 
   // Prefill typed name from signer
   useEffect(() => {
@@ -350,34 +379,31 @@ export default function PublicSigning() {
     setSubmitting(true);
     try {
       // Collect any File objects from attachment fields before serialisation
-      const attachmentFiles = {};  // { field_key: File }
+      const attachmentFiles = {};  // { field_<id> or field_key: File }
 
       // Map id-keyed fieldValues to [{field_key, value}] array the backend expects
       const fieldValuesArr = Object.entries(fieldValues).map(([idStr, val]) => {
         const field = fields.find((f) => String(f.id) === String(idStr));
         const fieldKey = field?.field_key || idStr;
+        const attachmentKey = field?.id ? `field_${field.id}` : fieldKey;
         let serializedVal;
         if (val instanceof File) {
           // File object → goes to FormData; send empty string as the value placeholder
-          attachmentFiles[fieldKey] = val;
+          attachmentFiles[attachmentKey] = val;
           serializedVal = '';
-        } else if (val && typeof val === 'object' && val.type) {
-          serializedVal = val.type === 'typed'
-            ? `[TYPED:${val.name}|${val.font}|${val.color}]`
-            : val.dataUrl || '';
         } else {
-          serializedVal = val ?? '';
+          serializedVal = serializeFieldValueForSubmit(val);
         }
-        return { field_key: fieldKey, value: serializedVal };
+        return { field: field?.id ?? null, field_key: fieldKey, value: serializedVal };
       });
 
       // Map frontend tab name to backend signature_type enum
-      const SIG_TYPE_MAP = { type: 'typed', draw: 'drawn', upload: 'uploaded' };
+      const SIG_TYPE_MAP = { type: 'typed', typed: 'typed', draw: 'drawn', drawn: 'drawn', upload: 'uploaded', uploaded: 'uploaded' };
       const sigPayload = signatureData
         ? {
             signature_type: SIG_TYPE_MAP[signatureData.type] || 'typed',
-            typed_name: signatureData.type === 'type' ? signatureData.name : (session?.recipient_detail?.name || ''),
-            metadata: signatureData.type !== 'type' ? { dataUrl: signatureData.dataUrl } : {},
+            typed_name: ['type', 'typed'].includes(signatureData.type) ? signatureData.name : (session?.recipient_detail?.name || ''),
+            metadata: ['type', 'typed'].includes(signatureData.type) ? {} : { dataUrl: signatureData.dataUrl },
           }
         : null;
 
@@ -388,17 +414,19 @@ export default function PublicSigning() {
 
       if (Object.keys(attachmentFiles).length > 0) {
         // At least one attachment — submit as multipart/form-data.
-        // Backend reads JSON from a `payload` field; files from `attachment__<field_key>`.
+        // Backend reads JSON from a `payload` field; files from `attachment__field_<id>`.
         const formData = new FormData();
         formData.append('payload', JSON.stringify(jsonBody));
         Object.entries(attachmentFiles).forEach(([key, file]) => {
           formData.append(`attachment__${key}`, file, file.name);
         });
-        await apiClient.post(EP.SIGN_SUBMIT(token), formData, {
+        const res = await apiClient.post(EP.SIGN_SUBMIT(token), formData, {
           headers: { 'Content-Type': 'multipart/form-data' },
         });
+        setSubmittedSession(res.data);
       } else {
-        await apiClient.post(EP.SIGN_SUBMIT(token), jsonBody);
+        const res = await apiClient.post(EP.SIGN_SUBMIT(token), jsonBody);
+        setSubmittedSession(res.data);
       }
 
       setSubmitted(true);
@@ -501,13 +529,26 @@ export default function PublicSigning() {
   }
 
   // ── Render: submitted / completed ─────────────────────────────────────────
-  const isAlreadyDone = submitted || session?.is_completed || session?.status === 'submitted';
+  const reviewSession = submittedSession || session;
+  const isAlreadyDone = submitted || reviewSession?.is_completed || reviewSession?.status === 'submitted';
   if (isAlreadyDone) {
     const completedPages = augmentedPages;
     // All fields (every party) with geometry — use all_fields if available, fall back to fields
-    const allFieldsForReview = session?.all_fields || session?.fields || fields;
-    // All submitted values keyed by field_key for quick lookup
-    const submittedValues = session?.field_values || [];
+    const allFieldsForReview = reviewSession?.all_fields || reviewSession?.fields || fields;
+    const currentRecipientId = reviewSession?.recipient || session?.recipient;
+    const localSubmittedValues = submitted
+      ? Object.entries(fieldValues).map(([idStr, val]) => {
+          const field = fields.find((f) => String(f.id) === String(idStr));
+          return {
+            field: field?.id ?? idStr,
+            field_key: field?.field_key || idStr,
+            recipient: currentRecipientId,
+            value: serializeFieldValueForSubmit(val),
+          };
+        }).filter((value) => value.value !== '')
+      : [];
+    // Prefer the current browser's just-entered values, then fall back to the API response.
+    const submittedValues = [...localSubmittedValues, ...(reviewSession?.field_values || [])];
     // Attachment field values that have files attached
     const attachmentValues = submittedValues.filter(v => v.attachment_url);
 
@@ -544,12 +585,16 @@ export default function PublicSigning() {
           <span style={{ fontSize: 24 }}>✅</span>
           <div style={{ flex: 1 }}>
             <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--success, #16a34a)' }}>
-              {submitted ? 'Document Signed Successfully' : 'This document is already signed'}
+              {submitted
+                ? (isApprover ? 'Document Approved Successfully' : 'Document Signed Successfully')
+                : (isApprover ? 'This approval task is already complete' : 'This document is already signed')}
             </div>
             <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>
               {submitted
-                ? 'Your signature has been recorded. You will receive a copy by email once all parties have signed.'
-                : 'This signing task has already been completed.'}
+                ? (isApprover
+                    ? 'Your approval has been recorded. The workflow and envelope status have been updated.'
+                    : 'Your signature has been recorded. You will receive a copy by email once all parties have signed.')
+                : (isApprover ? 'This approval task has already been completed.' : 'This signing task has already been completed.')}
             </div>
           </div>
           <button
@@ -580,7 +625,7 @@ export default function PublicSigning() {
                   <img src={page.image_url} alt={`Page ${pageIndex + 1}`} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', display: 'block', pointerEvents: 'none' }} />
                 )}
                 {pageFields.map((f) => {
-                  const fVal = submittedValues.find((v) => v.field_key === f.field_key || v.field === f.id);
+                  const fVal = submittedValueForField(submittedValues, f, currentRecipientId);
                   const displayVal = fVal?.value ?? '';
                   const fx = (f.x ?? 0) * scale;
                   const fy = (f.y ?? 0) * scale;
@@ -681,7 +726,7 @@ export default function PublicSigning() {
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <span style={{ fontWeight: 800, fontSize: 17, color: 'var(--primary, #2563eb)', letterSpacing: '-0.02em' }}>HanMak</span>
-          <span style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 600 }}>Signing</span>
+          <span style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 600 }}>{isApprover ? 'Approval' : 'Signing'}</span>
         </div>
         <span style={{ color: 'var(--text-muted)', fontSize: 14 }}>|</span>
         <div style={{ flex: 1, minWidth: 0 }}>
@@ -689,7 +734,7 @@ export default function PublicSigning() {
             {envelopeName}
           </div>
           {signerName && (
-            <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>Signing as: {signerName}</div>
+            <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{isApprover ? 'Approving as' : 'Signing as'}: {signerName}</div>
           )}
         </div>
         <button
@@ -741,7 +786,7 @@ export default function PublicSigning() {
               <div style={{ fontSize: '2.5rem' }}>📄</div>
               <div style={{ fontSize: 15, fontWeight: 600 }}>Document preview not available</div>
               <div style={{ fontSize: 13, color: 'var(--text-muted)', textAlign: 'center', maxWidth: 360 }}>
-                Please fill in the required fields on the right panel and submit your signature.
+                {isApprover ? 'Please review the document and submit your approval.' : 'Please fill in the required fields on the right panel and submit your signature.'}
               </div>
             </div>
           )}
@@ -754,6 +799,7 @@ export default function PublicSigning() {
               fields={fields}
               allFields={session?.all_fields || []}
               submittedValues={session?.field_values || []}
+              currentRecipientId={session?.recipient}
               fieldValues={fieldValues}
               activeFieldId={activeFieldId}
               onFieldClick={(fid) => {
@@ -777,7 +823,7 @@ export default function PublicSigning() {
         }}>
           {/* Progress */}
           <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
-            <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 8 }}>Complete Your Signature</div>
+            <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 8 }}>{isApprover ? 'Complete Your Approval' : 'Complete Your Signature'}</div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
               <div style={{
                 flex: 1,
@@ -863,10 +909,10 @@ export default function PublicSigning() {
               disabled={!allFilled || submitting}
               onClick={handleSubmit}
             >
-              {submitting ? 'Submitting…' : '✓ Submit Signed Document'}
+              {submitting ? 'Submitting…' : (isApprover ? '✓ Approve Document' : '✓ Submit Signed Document')}
             </button>
             <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 8, textAlign: 'center' }}>
-              By submitting, you agree to the Electronic Signature Terms.
+              {isApprover ? 'By approving, you confirm this document is ready to proceed.' : 'By submitting, you agree to the Electronic Signature Terms.'}
             </div>
           </div>
         </div>
@@ -1232,27 +1278,34 @@ export default function PublicSigning() {
 
 // ─── DocumentSigningPage ──────────────────────────────────────────────────────
 
-function DocumentSigningPage({ page, pageIndex, fields, allFields, submittedValues, fieldValues, activeFieldId, onFieldClick }) {
+function DocumentSigningPage({ page, pageIndex, fields, allFields, submittedValues, currentRecipientId, fieldValues, activeFieldId, onFieldClick }) {
   const imgUrl = page.image_url || page.url || '';
   const imgW = page.width || DOC_WIDTH;
   const imgH = page.height || 1471;
   const scale = DOC_WIDTH / imgW;
   const displayW = imgW * scale;
   const displayH = imgH * scale;
+  const submittedForField = (field) => submittedValueForField(submittedValues || [], field, currentRecipientId);
+  const submittedByOther = (field) => {
+    const submitted = submittedForField(field);
+    return submitted?.value && String(submitted.recipient || '') !== String(currentRecipientId || '');
+  };
 
   // My interactive fields on this page
   const myFieldIds = new Set(fields.map((f) => f.id));
   const pageFields = fields.filter(
-    (f) => (f.page != null ? Number(f.page) - 1 === pageIndex : f.page_index === pageIndex || f.pageIndex === pageIndex),
+    (f) => {
+      if (submittedByOther(f)) return false;
+      return f.page != null ? Number(f.page) - 1 === pageIndex : f.page_index === pageIndex || f.pageIndex === pageIndex;
+    },
   );
 
   // Other parties' completed fields on this page — only those that have a submitted value
   const otherCompletedFields = (allFields || []).filter((f) => {
-    if (myFieldIds.has(f.id)) return false;
     const onPage = f.page != null ? Number(f.page) - 1 === pageIndex : false;
     if (!onPage) return false;
-    const submitted = (submittedValues || []).find((v) => v.field_key === f.field_key || v.field === f.id);
-    return submitted && submitted.value;
+    if (myFieldIds.has(f.id) && !submittedByOther(f)) return false;
+    return submittedByOther(f);
   });
 
   return (
@@ -1270,7 +1323,7 @@ function DocumentSigningPage({ page, pageIndex, fields, allFields, submittedValu
         )}
         {/* Read-only overlays for other parties' already-submitted fields */}
         {otherCompletedFields.map((f) => {
-          const submitted = (submittedValues || []).find((v) => v.field_key === f.field_key || v.field === f.id);
+          const submitted = submittedValueForField(submittedValues || [], f, currentRecipientId);
           const val = submitted?.value || '';
           const fx = (f.x ?? 0) * scale;
           const fy = (f.y ?? 0) * scale;

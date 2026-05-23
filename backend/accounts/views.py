@@ -43,7 +43,7 @@ from .passkeys import (
     serialize_passkey_state,
     stored_attested_credentials,
 )
-from .permissions import OrganizationRolePermission, OrganizationScopedQuerySetMixin, feature_flag_allows, feature_flag_allows_request, user_has_org_role, user_organization_ids
+from .permissions import OrganizationRolePermission, OrganizationScopedQuerySetMixin, feature_flag_allows, feature_flag_allows_request, user_has_org_role, user_is_app_super_admin, user_organization_ids
 from .throttles import AccountSetupRateThrottle, PasswordResetRateThrottle
 from .serializers import (
     CreateManagedUserSerializer,
@@ -92,7 +92,7 @@ class UserViewSet(viewsets.ModelViewSet):
         return queryset.filter(memberships__organization_id__in=organization_ids, memberships__is_active=True).distinct()
 
     def _user_admin_organization_ids(self, user):
-        if self.request.user.is_superuser:
+        if user_is_app_super_admin(self.request.user):
             return list(user.memberships.values_list('organization_id', flat=True))
         return [
             organization_id for organization_id in user.memberships.values_list('organization_id', flat=True)
@@ -456,8 +456,11 @@ class OrganizationViewSet(OrganizationScopedQuerySetMixin, viewsets.ModelViewSet
 
     def perform_create(self, serializer):
         self._assert_related_organization_access(serializer)
+        parent = serializer.validated_data.get('parent')
+        if parent is None and not user_is_app_super_admin(self.request.user):
+            raise PermissionDenied('Only Super Admin can create a root organization. Organization admins may create subsidiaries under an organization they manage.')
         organization = serializer.save()
-        if not self.request.user.is_superuser:
+        if not user_is_app_super_admin(self.request.user):
             Membership.objects.get_or_create(
                 user=self.request.user,
                 organization=organization,

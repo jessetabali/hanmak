@@ -73,7 +73,7 @@ class EnvelopeFieldValue(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        unique_together = [('envelope', 'field_key', 'recipient')]
+        unique_together = [('envelope', 'field', 'recipient')]
 
     def __str__(self):
         return f'{self.envelope}: {self.field_key}'

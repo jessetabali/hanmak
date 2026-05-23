@@ -18,6 +18,40 @@ def template_field_party_key(field):
     return field.get('party_key') or 'party-1'
 
 
+def workflow_stage_party_key(stage):
+    stage_type = stage.get('stage_type') or stage.get('type') or ''
+    if stage_type not in ['signing', 'approval', 'review']:
+        return ''
+    return stage.get('party_key') or stage.get('key') or ''
+
+
+def workflow_party_keys(workflow_schema):
+    if not isinstance(workflow_schema, dict) or not workflow_schema.get('workflow_definition_id'):
+        return []
+    stages = workflow_schema.get('stages') if isinstance(workflow_schema, dict) else []
+    return [party_key for party_key in (workflow_stage_party_key(stage or {}) for stage in stages or []) if party_key]
+
+
+def workflow_stage_order_map(workflow_schema):
+    stages = workflow_schema.get('stages') if isinstance(workflow_schema, dict) else []
+    order_map = {}
+    for index, stage in enumerate(stages or [], start=1):
+        party_key = workflow_stage_party_key(stage or {})
+        if party_key and party_key not in order_map:
+            order_map[party_key] = int(stage.get('order') or index)
+    return order_map
+
+
+def workflow_stage_label_map(workflow_schema):
+    stages = workflow_schema.get('stages') if isinstance(workflow_schema, dict) else []
+    label_map = {}
+    for stage in stages or []:
+        party_key = workflow_stage_party_key(stage or {})
+        if party_key and party_key not in label_map:
+            label_map[party_key] = stage.get('label') or party_key.replace('-', ' ').replace('_', ' ').title()
+    return label_map
+
+
 def _field_number(field, key, fallback=0):
     try:
         return float(field.get(key, fallback) or fallback)
@@ -63,8 +97,9 @@ def normalize_field_geometry(field, target_width=SIGNER_PAGE_WIDTH):
 
 
 @transaction.atomic
-def setup_template_version(template, document, fields=None, created_by=None, changelog='Backend setup', party_labels=None):
+def setup_template_version(template, document, fields=None, created_by=None, changelog='Backend setup', party_labels=None, workflow_schema=None):
     fields = [normalize_field_geometry(field) for field in (fields or DEFAULT_STARTER_FIELDS)]
+    workflow_schema = workflow_schema or {'stages': [{'key': 'signer', 'type': 'signing', 'order': 1}]}
     next_version = (template.versions.order_by('-version_number').values_list('version_number', flat=True).first() or 0) + 1
     template.status = Template.Status.ACTIVE
     template.version = next_version
@@ -79,20 +114,23 @@ def setup_template_version(template, document, fields=None, created_by=None, cha
             'document_id': document.id,
             'fields': fields,
         },
-        workflow_schema={'stages': [{'key': 'signer', 'type': 'signing', 'order': 1}]},
+        workflow_schema=workflow_schema,
         changelog=changelog,
         is_published=True,
         created_by=created_by,
     )
     parties = {}
     _party_labels = party_labels or {}
-    for party_key in sorted({template_field_party_key(field) for field in fields}):
-        label = _party_labels.get(party_key) or party_key.replace('-', ' ').title()
+    workflow_labels = workflow_stage_label_map(workflow_schema)
+    workflow_orders = workflow_stage_order_map(workflow_schema)
+    party_keys = set(workflow_party_keys(workflow_schema)) | {template_field_party_key(field) for field in fields}
+    for index, party_key in enumerate(sorted(party_keys, key=lambda key: (workflow_orders.get(key, 999), key)), start=1):
+        label = _party_labels.get(party_key) or workflow_labels.get(party_key) or party_key.replace('-', ' ').replace('_', ' ').title()
         parties[party_key] = TemplateParty.objects.create(
             template_version=version,
             role_key=party_key,
             label=label,
-            routing_order=int(party_key.split('-')[-1]) if party_key.split('-')[-1].isdigit() else 1,
+            routing_order=workflow_orders.get(party_key) or (int(party_key.split('-')[-1]) if party_key.split('-')[-1].isdigit() else index),
         )
     for field in fields:
         FormField.objects.create(
@@ -139,6 +177,50 @@ def version_fields(version):
     ]
 
 
+def version_required_party_keys(version):
+    return {template_field_party_key(field) for field in version_fields(version)} | set(workflow_party_keys(version.workflow_schema or {}))
+
+
+def start_template_workflow_run(envelope, actor=None):
+    workflow_id = (envelope.template_version.workflow_schema or {}).get('workflow_definition_id') if envelope.template_version else None
+    if not workflow_id:
+        return None
+
+    from workflow.models import WorkflowDefinition, WorkflowEvent, WorkflowRun
+
+    workflow = WorkflowDefinition.objects.filter(
+        id=workflow_id,
+        organization_id=envelope.organization_id,
+        status=WorkflowDefinition.Status.ACTIVE,
+    ).first()
+    if not workflow:
+        return None
+
+    run, created = WorkflowRun.objects.get_or_create(
+        envelope=envelope,
+        workflow=workflow,
+        status=WorkflowRun.Status.RUNNING,
+        defaults={},
+    )
+    if not created:
+        return run
+
+    first_stage = workflow.stages.order_by('order').first()
+    if first_stage:
+        run.current_stage_key = first_stage.key
+        run.save(update_fields=['current_stage_key'])
+        WorkflowEvent.objects.create(
+            run=run,
+            envelope=envelope,
+            event_type='workflow.started',
+            stage_key=first_stage.key,
+            actor=actor,
+            message=f'Workflow run started from template — initial stage: {first_stage.label}.',
+            metadata={'source': 'template_send'},
+        )
+    return run
+
+
 @transaction.atomic
 def create_envelope_from_template(*, organization, template_version, sender, name, message='', due_date=None, recipients=None, send_status=False):
     recipients = recipients or []
@@ -147,7 +229,7 @@ def create_envelope_from_template(*, organization, template_version, sender, nam
     duplicates = sorted({party_key for party_key in party_keys if party_keys.count(party_key) > 1})
     if duplicates:
         raise ValueError(f'Only one recipient can own {", ".join(duplicates)}')
-    required_parties = {template_field_party_key(field) for field in version_fields(template_version)}
+    required_parties = version_required_party_keys(template_version)
     missing = sorted(required_parties - set(party_map))
     if missing:
         raise ValueError(f'Missing recipient assignment for {", ".join(missing)}')
@@ -169,6 +251,7 @@ def create_envelope_from_template(*, organization, template_version, sender, nam
             name=recipient['name'],
             email=recipient['email'],
             role=recipient.get('role') or Recipient.Role.SIGNER,
+            party_key=recipient.get('party_key', ''),
             routing_order=recipient.get('routing_order') or index,
         )
         if recipient.get('party_key'):
@@ -203,4 +286,6 @@ def create_envelope_from_template(*, organization, template_version, sender, nam
             page_height=field.get('page_height') or 1471,
             options=field.get('options') or [],
         )
+    if send_status:
+        start_template_workflow_run(envelope, actor=sender)
     return envelope

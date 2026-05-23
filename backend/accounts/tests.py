@@ -1033,6 +1033,12 @@ class TenantScopedAPITests(TestCase):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(message.recipient.status, 'signed')
+        returned_values = {value['field_key']: value['value'] for value in response.data['field_values']}
+        self.assertEqual(returned_values.get('signature'), 'Alice Signer')
+        self.assertTrue(any(
+            value['field_key'] == 'signature' and value['recipient'] == message.recipient_id
+            for value in response.data['field_values']
+        ))
 
     def test_email_template_overrides_invite_rendering(self):
         EmailTemplate.objects.create(
@@ -1793,6 +1799,27 @@ class TenantScopedAPITests(TestCase):
         self.assertTrue(AuditEvent.objects.filter(event_type='admin.role_deleted', organization=self.org_a).exists())
         self.assertTrue(AuditEvent.objects.filter(event_type='admin.team_deleted', organization=self.org_a).exists())
 
+    def test_only_super_admin_can_create_root_organization(self):
+        self.client.force_authenticate(self.user_a)
+
+        blocked = self.client.post('/api/v1/organizations/', {
+            'name': 'Unparented Tenant',
+            'slug': 'unparented-tenant',
+        }, format='json')
+
+        global_admin = get_user_model().objects.create_user(username='root-admin', password='root-pass')
+        Membership.objects.create(user=global_admin, organization=self.org_a, role=Membership.Role.SUPER_ADMIN)
+        self.client.force_authenticate(global_admin)
+        allowed = self.client.post('/api/v1/organizations/', {
+            'name': 'Root Tenant',
+            'slug': 'root-tenant',
+        }, format='json')
+
+        self.assertEqual(blocked.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertFalse(Organization.objects.filter(slug='unparented-tenant').exists())
+        self.assertEqual(allowed.status_code, status.HTTP_201_CREATED)
+        self.assertTrue(Organization.objects.filter(slug='root-tenant').exists())
+
     def test_organization_admin_export_transfer_and_deletion_request(self):
         self.client.force_authenticate(self.user_a)
         self.org_a.primary_contact_email = 'owner@alpha.example.com'
@@ -2053,6 +2080,10 @@ class TenantScopedAPITests(TestCase):
             self.client.post('/api/v1/users/create_managed/', {'organization': self.org_a.id, 'email': 'blocked@example.com'}, format='json'),
             self.client.post('/api/v1/app-settings/', {'organization': self.org_a.id, 'namespace': 'smtp', 'key': 'host', 'value': {'host': 'smtp.example.com'}}, format='json'),
             self.client.post('/api/v1/feature-flags/', {'organization': self.org_a.id, 'key': 'blocked_feature', 'is_enabled': True}, format='json'),
+            self.client.post('/api/v1/api-keys/', {'organization': self.org_a.id, 'name': 'Blocked key', 'scopes': ['envelopes:read']}, format='json'),
+            self.client.post('/api/v1/webhook-endpoints/', {'organization': self.org_a.id, 'name': 'Blocked hook', 'target_url': 'https://example.com/hook', 'events': ['envelope.completed']}, format='json'),
+            self.client.post('/api/v1/legal-holds/', {'organization': self.org_a.id, 'name': 'Blocked hold', 'matter': 'Matter'}, format='json'),
+            self.client.post('/api/v1/payment-portal-sessions/', {'organization': self.org_a.id, 'session_type': 'portal', 'url': 'https://billing.example/session'}, format='json'),
         ]
 
         self.assertEqual([item.status_code for item in responses], [
@@ -2061,6 +2092,10 @@ class TenantScopedAPITests(TestCase):
             status.HTTP_400_BAD_REQUEST,
             status.HTTP_400_BAD_REQUEST,
             status.HTTP_403_FORBIDDEN,
+            status.HTTP_400_BAD_REQUEST,
+            status.HTTP_400_BAD_REQUEST,
+            status.HTTP_400_BAD_REQUEST,
+            status.HTTP_400_BAD_REQUEST,
             status.HTTP_400_BAD_REQUEST,
             status.HTTP_400_BAD_REQUEST,
         ])

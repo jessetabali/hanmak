@@ -43,6 +43,29 @@ compliance    Legal holds, retention, data residency, compliance exports
 billing       Plans, subscriptions, usage, invoices, payment portal sessions, license
 ```
 
+## 1.1 Feature/API Inventory
+
+This inventory was scanned from `react-frontend/src/router.jsx`, `react-frontend/src/api/endpoints.js`, `backend/hanmak/urls.py`, and backend model/viewset classes. When adding or changing a feature, keep this table, `docs/USER_GUIDE.md`, `docs/HOW_IT_WORKS.md`, and `docs/FRONTEND_BACKEND_HOOKUP_AUDIT.md` in sync.
+
+| Feature area | React route(s) | Backend app(s) | Primary API/model surface |
+|---|---|---|---|
+| Auth, setup, profile | `/login`, `/account-setup`, `/accept-invite`, `/profile` | `accounts` | token login/refresh, profiles, invitations, setup tokens, sessions, MFA devices, recovery codes, passkey challenges |
+| Dashboard and analytics | `/dashboard` | `analytics`, `inbox`, `auditlog`, `workflow`, `webhooks`, `risk` | completion analytics, approval bottlenecks, inbox summaries, audit activity, webhook health, workflow snapshots |
+| Inbox and search | `/inbox`, `/search` | `inbox`, `search`, `tasks`, `approvals`, `signing` | inbox API, search index, global search, task runs, approval requests, signing sessions |
+| Templates and Form Builder | `/templates`, `/form-builder/:templateId?` | `envelopes`, `documents`, `workflow` | templates, template versions, template parties, form fields, document pages, workflow schema snapshots |
+| Documents/File Library | `/documents` | `documents` | stored files, documents, document pages, document scans, envelope documents, process/scan/render/prepare/duplicate actions |
+| Envelopes and recipients | `/envelopes`, `/envelopes/:id` | `envelopes`, `documents`, `messaging`, `workflow` | envelopes, recipients with `party_key`, copied form fields, envelope documents, create-from-template, send/void/remind/bulk/download |
+| Public signing | `/sign/:token`, `/signing` | `signing`, `evidence`, `messaging`, `approvals` | signing sessions, consent records, signatures, envelope field values, attachments, submit/decline/delegate/download |
+| Workflow Builder | `/workflow` | `workflow`, `envelopes` | workflow definitions, stages, runs, events, activate/archive/simulate/replace-stages/advance |
+| Approvals | `/approvals` | `approvals`, `envelopes`, `workflow` | approval requests, approve/reject/request-changes/delegate actions, envelope context |
+| Audit and evidence | `/audit`, `/evidence-bundles` | `auditlog`, `evidence`, `signing`, `documents` | audit events, evidence bundles, signed PDF generation, verification, visual QA |
+| Admin and RBAC | `/admin/users`, `/admin/organizations`, `/admin/teams`, `/admin/roles` | `accounts` | organizations, domains, users, memberships, teams, roles, object permissions, impersonation requests |
+| Settings and identity | `/settings/*` | `configcenter`, `identity`, `accounts`, `messaging` | general/email/storage/security settings, branding, notification preferences, SSO, SCIM, LDAP, JIT, social providers |
+| System operations | `/system/health`, `/system/tasks`, `/system/error-log` | `configcenter`, `tasks`, frontend error store | health checks, incidents, readiness/APM config, task definitions, task runs, task events, client error logs |
+| Compliance | `/compliance/*` | `compliance` | legal holds/items, retention policies, data residency regions/policies, compliance exports |
+| Billing/license | `/billing`, `/license` | `billing` | plans, subscriptions, usage records, invoices, payment methods, payment portal sessions, payment webhook events, license keys |
+| Developer/integrations | `/developer/*` | `api_keys`, `oauth_apps`, `webhooks`, `risk`, `search`, `configcenter`, `messaging`, `tasks` | API keys/request logs, OAuth apps/grants, webhook endpoints/deliveries/outbox, risk findings, policy rules, search rebuild, feature flags, email messages/templates, Test Lab task runs |
+
 ## 2. Running the React Frontend
 
 ```bash
@@ -66,7 +89,7 @@ Key source files:
 ```text
 src/router.jsx           All routes — matches every vanilla JS page ID
 src/api/client.js        Axios + JWT attach + 401-refresh interceptors
-src/api/endpoints.js     Central EP constant registry (~80 API paths)
+src/api/endpoints.js     Central EP constant registry (150+ API paths)
 src/hooks/useApi.js      useApiQuery + useApiMutation wrappers
 src/store/authStore.js   Zustand — user, org, JWT lifecycle
 src/components/layout/   AppShell, AuthGuard, Sidebar, Topbar
@@ -232,10 +255,33 @@ backend/accounts/permissions.py
 
 `OrganizationRolePermission` allows safe reads and restricts mutations to:
 
+- Application super admins (`is_superuser` or active `super_admin` membership)
 - Organization admins
 - Organization managers
 - Users with matching custom-role permissions
 - Users with valid object grants where supported
+
+Built-in membership roles:
+
+| Role value | Label | Write scope |
+|---|---|---|
+| `super_admin` | Super Admin | Global app operator. Bypasses tenant filters, can switch organizations, and can manage cross-organization admin, billing, license, and organization records. |
+| `admin` | Admin | Full writes inside the organization. |
+| `manager` | Manager | Operational writes inside the organization. This is the default write role paired with admin for most feature viewsets. |
+| `signer` | Signer | Read plus assigned signing/inbox work. Public signing uses token-scoped endpoints. |
+| `viewer` | Viewer | Read-oriented access only unless a custom role or object grant adds permissions. |
+
+Current write-gated feature groups include admin users/organizations/teams/roles, settings, documents, templates, envelopes, workflows, reminders/email templates, billing records, license keys, compliance records, evidence bundles, API keys, OAuth apps, webhooks, risk findings, background tasks, and feature flags. Read-only reporting surfaces still require authentication and tenant access.
+
+Default local/demo operators:
+
+```bash
+python manage.py seed_demo
+# Creates admin / admin123 as a Django superuser with a super_admin membership.
+
+python manage.py seed_super_admin --username superadmin --email superadmin@example.com --password superadmin123
+# Creates or updates one app-level super admin and root organization.
+```
 
 ## 8. Form Builder And Signing Flow
 
@@ -270,10 +316,11 @@ Envelope creation flow:
 
 1. Choose a template.
 2. Assign recipients to parties.
-3. Call `/envelopes/create_from_template/`.
-4. Backend copies fields to the envelope and assigns them to recipients.
+3. Call `/envelopes/create-from-template/`.
+4. Backend copies fields to the envelope and assigns them to recipients using `party_key`.
 5. Send the envelope.
 6. Recipient signing sessions are created.
+7. If the template version has an active workflow snapshot, `start_template_workflow_run()` creates a running `WorkflowRun`.
 
 Public signing:
 
@@ -292,14 +339,16 @@ The JSON payload is sent in a `payload` multipart field.
 
 ## 8.1 Workflow Builder
 
-The Workflow Builder sits on top of the envelope system. It uses four models: `WorkflowDefinition`, `WorkflowStage`, `WorkflowRun`, and `WorkflowEvent`. A `WorkflowRun` holds a FK to `Envelope` (not to `Template`) and a FK to `WorkflowDefinition`. Stage advancement is always manual — no signing event auto-advances a run.
+The Workflow Builder sits on top of the envelope system. It uses four models: `WorkflowDefinition`, `WorkflowStage`, `WorkflowRun`, and `WorkflowEvent`. A `WorkflowRun` holds a FK to `Envelope` (not to `Template`) and a FK to `WorkflowDefinition`. Workflow-backed templates auto-start a run when their envelope is sent. Public signing/approval completion auto-advances the run only when the completing recipient's `party_key` matches the current workflow stage key; all other advancement remains explicit.
+
+Approval requests can be linked to `Recipient` through `ApprovalRequest.recipient`. Public approver submissions call the signing endpoint, mark the linked approval approved, mark the approver recipient signed, and advance the matching workflow stage through `workflow.services.advance_running_workflows_for_recipient()`.
 
 All four viewsets carry `feature_flag_key = 'workflow_builder'` and return 403 when the flag is disabled.
 
 Key endpoints:
-- `POST /workflow-definitions/<id>/activate/` — validate and activate
-- `POST /workflow-definitions/<id>/replace-stages/` — atomically replace all stages
-- `POST /workflow-definitions/<id>/simulate/` — dry-run validation
+- `POST /workflows/<id>/activate/` — validate and activate
+- `POST /workflows/<id>/replace-stages/` — atomically replace all stages
+- `POST /workflows/<id>/simulate/` — dry-run validation
 - `POST /workflow-runs/<id>/advance/` — advance to the next stage (or complete)
 
 > **Deep-dive reference:** For the full data model, all API endpoints, validation rules, advance mechanics, stage types, the `TemplateVersion.workflow_schema` relationship, and a full happy-path walkthrough, see `docs/HOW_IT_WORKS.md` — Sections 6 and 7.
@@ -400,14 +449,6 @@ key       = request_*, subscriber_*, vote_*, notify_*
 This keeps feature requests and subscriptions persistent without adding a heavier product-management schema yet.
 
 License keys expose a backend `features` array. When a development license is created or activated without features, `LicenseKeyViewSet` seeds a default list so the frontend feature checklist is backend-driven.
-
-Built-in membership roles:
-
-- `super_admin`: app-level operator with global organization visibility, cross-organization user, billing, and license management, and direct organization cleanup where permitted.
-- `admin`: organization administrator.
-- `manager`: organization manager with operational write access.
-- `signer`: signing/task participant.
-- `viewer`: read-oriented organization member.
 
 API Docs should keep sidebar navigation and content sections in sync. The beta API reference currently documents Authentication, Rate Limiting, Errors & Status Codes, Pagination, Envelopes, Templates, Signatures, Webhooks, Users, Audit Trail, and Files, while downloads still come from the live OpenAPI schema.
 

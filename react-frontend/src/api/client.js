@@ -13,8 +13,11 @@ apiClient.interceptors.request.use((config) => {
   const token = localStorage.getItem('HANMAK_ACCESS_TOKEN');
   if (token) config.headers.Authorization = `Bearer ${token}`;
 
+  const isSuperAdmin = localStorage.getItem('HANMAK_IS_SUPER_ADMIN') === 'true';
+  const globalScope = localStorage.getItem('HANMAK_GLOBAL_SCOPE') === 'true';
+  const explicitAllScope = config.params?.scope === 'all';
   const orgId = localStorage.getItem('HANMAK_ORGANIZATION_ID');
-  if (orgId) config.headers['X-HanMak-Organization'] = orgId;
+  if (orgId && !(isSuperAdmin && (globalScope || explicitAllScope))) config.headers['X-HanMak-Organization'] = orgId;
 
   return config;
 });

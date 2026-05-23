@@ -42,6 +42,7 @@ export default function TemplateList() {
   const [uploadFile, setUploadFile] = useState(null);
   const [uploadDragging, setUploadDragging] = useState(false);
   const [createCategory, setCreateCategory] = useState('');
+  const [createWorkflowId, setCreateWorkflowId] = useState('');
   const [creating, setCreating] = useState(false);
   const fileInputRef = useRef(null);
 
@@ -79,12 +80,19 @@ export default function TemplateList() {
     { page_size: 50 }
   );
 
+  const { data: workflowsData } = useApiQuery(
+    ['workflows-picker-active'],
+    EP.WORKFLOWS,
+    { status: 'active', page_size: 100 }
+  );
+
   const templates = data?.results ?? [];
   const count = data?.count ?? 0;
   const totalCount = summaryData?.count ?? 0;
   const hasNext = Boolean(data?.next);
   const hasPrev = Boolean(data?.previous);
   const documents = documentsData?.results ?? [];
+  const workflows = (workflowsData?.results ?? []).filter(workflow => workflow.status === 'active');
 
   // ---- Mutations ----
   const createMutation = useApiMutation(
@@ -153,18 +161,56 @@ export default function TemplateList() {
     if (!documentId) return;
     setPreviewLoading(true);
     try {
-      // ── Path 1: fetch document and use already-rendered server pages ───────
       const { data: doc } = await apiClient.get(EP.DOCUMENT(documentId));
+      const fileUrl = doc.file_url || doc.file;
+
+      // Prefer PDF.js when the source file is available. It gives us the real
+      // page count even when the backend currently has only page 1 rendered.
+      if (fileUrl) {
+        const pdfjsLib = await import('pdfjs-dist');
+        pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
+          'pdfjs-dist/build/pdf.worker.min.mjs',
+          import.meta.url,
+        ).href;
+
+        const res = await apiClient.get(fileUrl, { responseType: 'arraybuffer' });
+        const pdfDoc = await pdfjsLib.getDocument({ data: res.data }).promise;
+        const clientPages = [];
+        const DOC_W = 1040;
+        for (let i = 1; i <= pdfDoc.numPages; i++) {
+          const page = await pdfDoc.getPage(i);
+          const vp = page.getViewport({ scale: 1 });
+          const scale = DOC_W / vp.width;
+          const scaledVp = page.getViewport({ scale });
+          const canvas = document.createElement('canvas');
+          canvas.width = Math.round(scaledVp.width);
+          canvas.height = Math.round(scaledVp.height);
+          await page.render({ canvasContext: canvas.getContext('2d'), viewport: scaledVp }).promise;
+          clientPages.push({
+            page_number: i,
+            image_url: canvas.toDataURL('image/png'),
+            width: canvas.width,
+            height: canvas.height,
+          });
+        }
+        if (clientPages.length > 0) {
+          setPreviewPages(clientPages);
+          apiClient.post(EP.DOCUMENT_PREPARE(documentId), {
+            page_count: clientPages.length,
+            width: DOC_W,
+          }).catch(() => {});
+          return;
+        }
+      }
+
       const existingPages = (doc.pages ?? []).filter(p => p.image_url);
-      if (existingPages.length > 0) {
+      const expectedPages = Math.max(doc.page_count || 0, doc.pages?.length || 0);
+      if (existingPages.length > 0 && (!expectedPages || existingPages.length >= expectedPages)) {
         setPreviewPages(existingPages);
         return;
       }
 
-      // ── Path 2: trigger server-side rendering via prepare-for-builder ──────
-      // Do NOT pass page_count when we don't know the real value — the backend
-      // will detect it from pypdf.  Passing `|| 1` would poison page_count in
-      // the DB for multi-page PDFs and cause all subsequent renders to truncate.
+      // Server rendering fallback when the source file cannot be rendered in browser.
       try {
         const prepRes = await apiClient.post(EP.DOCUMENT_PREPARE(documentId), {
           ...(doc.page_count > 0 ? { page_count: doc.page_count } : {}),
@@ -179,40 +225,6 @@ export default function TemplateList() {
           return;
         }
       } catch { /* server rendering unavailable — fall through to PDF.js */ }
-
-      // ── Path 3: PDF.js client-side rendering ──────────────────────────────
-      // Used when the backend has no poppler/pdf2image or MinIO is unreachable.
-      const fileUrl = doc.file_url || doc.file;
-      if (!fileUrl) return;
-
-      const pdfjsLib = await import('pdfjs-dist');
-      pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
-        'pdfjs-dist/build/pdf.worker.min.mjs',
-        import.meta.url,
-      ).href;
-
-      const res = await apiClient.get(fileUrl, { responseType: 'arraybuffer' });
-      const pdfDoc = await pdfjsLib.getDocument({ data: res.data }).promise;
-      const clientPages = [];
-      const DOC_W = 1040;
-      for (let i = 1; i <= pdfDoc.numPages; i++) {
-        const page = await pdfDoc.getPage(i);
-        const vp = page.getViewport({ scale: 1 });
-        const scale = DOC_W / vp.width;
-        const scaledVp = page.getViewport({ scale });
-        const canvas = document.createElement('canvas');
-        canvas.width = Math.round(scaledVp.width);
-        canvas.height = Math.round(scaledVp.height);
-        await page.render({ canvasContext: canvas.getContext('2d'), viewport: scaledVp }).promise;
-        // Match shape expected by the preview modal (same as DocumentPageSerializer)
-        clientPages.push({
-          page_number: i,
-          image_url: canvas.toDataURL('image/png'),
-          width: canvas.width,
-          height: canvas.height,
-        });
-      }
-      if (clientPages.length > 0) setPreviewPages(clientPages);
     } catch { /* nothing to show — modal will display the fallback message */ }
     finally { setPreviewLoading(false); }
   }, []);
@@ -222,6 +234,7 @@ export default function TemplateList() {
     setCreateDescription('');
     setCreateCategory('');
     setCreateDocumentId('');
+    setCreateWorkflowId('');
     setUploadFile(null);
     setUploadDragging(false);
   };
@@ -262,7 +275,10 @@ export default function TemplateList() {
       setCreateModal(false);
       resetCreateForm();
       // Pass docId in URL so FormBuilder loads the right document
-      navigate(docId ? `/form-builder/${res.data.id}?doc=${docId}` : `/form-builder/${res.data.id}`);
+      const params = new URLSearchParams();
+      if (docId) params.set('doc', docId);
+      if (createWorkflowId) params.set('workflow', createWorkflowId);
+      navigate(`/form-builder/${res.data.id}${params.toString() ? `?${params.toString()}` : ''}`);
     } catch (e) {
       toast.error(e.response?.data?.detail || e.message);
     } finally {
@@ -640,6 +656,25 @@ export default function TemplateList() {
               value={createCategory}
               onChange={e => setCreateCategory(e.target.value)}
             />
+          </div>
+
+          <div className="form-group">
+            <label className="form-label">Workflow</label>
+            <select
+              className="form-input"
+              value={createWorkflowId}
+              onChange={e => setCreateWorkflowId(e.target.value)}
+            >
+              <option value="">No workflow</option>
+              {workflows.map(workflow => (
+                <option key={workflow.id} value={workflow.id}>
+                  {workflow.name} ({workflow.stages?.length || 0} stages)
+                </option>
+              ))}
+            </select>
+            <p style={{ fontSize: '0.8125rem', color: 'var(--text-muted)', margin: '0.35rem 0 0' }}>
+              Workflow-backed templates use stages and parties from an active workflow that already exists.
+            </p>
           </div>
 
           {/* PDF upload drop zone */}

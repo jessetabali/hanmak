@@ -9,7 +9,7 @@ from accounts.models import Organization
 from compliance.services import assert_not_under_active_legal_hold, validate_data_residency_for_organization
 from configcenter.models import GeneralSettings
 from messaging.models import EmailMessage
-from messaging.services import absolute_signing_url, queue_envelope_invites, queue_reminders, render_email
+from messaging.services import absolute_signing_url, queue_envelope_invites, queue_recipient_reminder, queue_reminders, render_email
 from messaging.tasks import deliver_email_message_task
 from signing.models import SigningSession
 
@@ -28,7 +28,7 @@ from .serializers import (
     TemplateSerializer,
     TemplateVersionSerializer,
 )
-from .services import create_envelope_from_template, setup_template_version
+from .services import create_envelope_from_template, setup_template_version, start_template_workflow_run
 
 
 class TemplateViewSet(OrganizationScopedQuerySetMixin, viewsets.ModelViewSet):
@@ -120,6 +120,34 @@ class TemplateViewSet(OrganizationScopedQuerySetMixin, viewsets.ModelViewSet):
             for p in (serializer.validated_data.get('parties') or [])
             if p.get('key') or p.get('id')
         }
+        workflow_schema = serializer.validated_data.get('workflow_schema') or {}
+        workflow_id = workflow_schema.get('workflow_definition_id')
+        if workflow_id:
+            from workflow.models import WorkflowDefinition
+
+            workflow = WorkflowDefinition.objects.prefetch_related('stages').filter(
+                id=workflow_id,
+                organization=template.organization,
+                status=WorkflowDefinition.Status.ACTIVE,
+            ).first()
+            if not workflow:
+                raise serializers.ValidationError({'workflow_schema': 'Choose an active workflow from this template organization.'})
+            workflow_schema = {
+                **workflow_schema,
+                'workflow_definition_id': workflow.id,
+                'workflow_name': workflow.name,
+                'stages': [
+                    {
+                        'key': stage.key,
+                        'label': stage.label,
+                        'stage_type': stage.stage_type,
+                        'order': stage.order,
+                        'party_key': stage.key if stage.stage_type in ['signing', 'approval', 'review'] else '',
+                        'config': stage.config,
+                    }
+                    for stage in workflow.stages.order_by('order')
+                ],
+            }
         version = setup_template_version(
             template,
             document,
@@ -127,6 +155,7 @@ class TemplateViewSet(OrganizationScopedQuerySetMixin, viewsets.ModelViewSet):
             created_by=request.user,
             changelog=serializer.validated_data.get('changelog') or 'Backend template setup',
             party_labels=party_labels,
+            workflow_schema=workflow_schema,
         )
         return response.Response(TemplateVersionSerializer(version, context=self.get_serializer_context()).data, status=status.HTTP_201_CREATED)
 
@@ -269,6 +298,7 @@ class EnvelopeViewSet(OrganizationScopedQuerySetMixin, viewsets.ModelViewSet):
         serializer = EnvelopeStatusSerializer(data=request.data, context={'envelope': envelope, 'status': Envelope.Status.SENT})
         serializer.is_valid(raise_exception=True)
         envelope = serializer.save()
+        start_template_workflow_run(envelope, actor=request.user)
         messages = queue_envelope_invites(envelope, queued_by=request.user, request=request)
         for message in messages:
             deliver_email_message_task.apply_async(args=[message.id], queue='email')
@@ -320,6 +350,7 @@ class EnvelopeViewSet(OrganizationScopedQuerySetMixin, viewsets.ModelViewSet):
                 envelope.status = Envelope.Status.SENT
                 envelope.sent_at = timezone.now()
                 envelope.save(update_fields=['status', 'sent_at', 'updated_at'])
+                start_template_workflow_run(envelope, actor=request.user)
                 messages = queue_envelope_invites(envelope, queued_by=request.user, request=request)
                 for message in messages:
                     deliver_email_message_task.apply_async(args=[message.id], queue='email')
@@ -355,6 +386,19 @@ class RecipientViewSet(OrganizationScopedQuerySetMixin, viewsets.ModelViewSet):
     queryset = Recipient.objects.select_related('envelope').all().order_by('envelope_id', 'routing_order')
     serializer_class = RecipientSerializer
     permission_classes = [OrganizationRolePermission]
+    filterset_fields = ['envelope', 'role', 'status', 'party_key']
+
+    @decorators.action(detail=True, methods=['post'])
+    def remind(self, request, pk=None):
+        recipient = self.get_object()
+        if recipient.status in [Recipient.Status.SIGNED, Recipient.Status.DECLINED, Recipient.Status.DELEGATED]:
+            return response.Response(
+                {'detail': f'Cannot send a reminder to a recipient with status "{recipient.status}".'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        message = queue_recipient_reminder(recipient, queued_by=request.user, request=request)
+        deliver_email_message_task.apply_async(args=[message.id], queue='email')
+        return response.Response({'queued_email_count': 1, 'email_message': message.id})
 
     @decorators.action(detail=True, methods=['post'])
     def mark_signed(self, request, pk=None):
@@ -380,6 +424,7 @@ class RecipientViewSet(OrganizationScopedQuerySetMixin, viewsets.ModelViewSet):
             name=serializer.validated_data['name'],
             email=serializer.validated_data['email'],
             role=recipient.role,
+            party_key=recipient.party_key,
             status=Recipient.Status.SENT if recipient.envelope.status != Envelope.Status.DRAFT else Recipient.Status.PENDING,
             routing_order=recipient.routing_order,
             delegation_reason=serializer.validated_data.get('reason', ''),

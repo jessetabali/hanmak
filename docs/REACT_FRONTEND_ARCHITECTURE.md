@@ -31,7 +31,7 @@ react-frontend/
     ├── router.jsx           All routes — full mapping below
     ├── api/
     │   ├── client.js        Axios instance — JWT, refresh, org header
-    │   └── endpoints.js     Central EP constant registry (~80 paths)
+    │   └── endpoints.js     Central EP constant registry (150+ paths)
     ├── components/
     │   ├── layout/
     │   │   ├── AppShell.jsx  Sidebar + Topbar + <Outlet>
@@ -103,6 +103,7 @@ Every route in `router.jsx` mirrors the page IDs from the vanilla JS `registerPa
 
 /system/health                system/SystemHealth
 /system/tasks                 system/BackgroundTasks
+/system/error-log             system/ErrorLog
 
 /compliance/legal-holds       compliance/LegalHolds
 /compliance/retention         compliance/Retention
@@ -121,6 +122,27 @@ Every route in `router.jsx` mirrors the page IDs from the vanilla JS `registerPa
 /developer/operations         developer/OperationsConsole
 /developer/release-control    developer/ReleaseControl
 ```
+
+## Feature/Page Inventory
+
+The React app currently exposes these feature groups. Each page is lazy-loaded and uses the central `EP` registry for backend calls.
+
+| Feature group | Page component(s) | Backend/API domains |
+|---|---|---|
+| Public entry | `Login`, `AccountSetup`, `AcceptInvite`, `PublicSigning` | auth tokens, invitations/setup tokens, public signing token endpoints |
+| Shell productivity | `Dashboard`, `Inbox`, `Search`, `Profile` | analytics, inbox, search, profiles, sessions, MFA, notifications |
+| Envelope lifecycle | `EnvelopeList`, `EnvelopeDetail` | envelopes, recipients, create-from-template, send, void, remind, bulk actions, signed PDF download |
+| Template lifecycle | `TemplateList`, `FormBuilder` | templates, versions, parties, form fields, documents, workflow schema snapshots |
+| Documents/File Library | `Documents` | documents, stored files, document pages, scans, process/scan/render/prepare/duplicate |
+| Signing operations | `Signing`, `PublicSigning` | signing sessions, consent, signatures, field values, attachments, decline/delegate/download |
+| Workflow and approvals | `WorkflowBuilder`, `Approvals` | workflows, workflow stages/runs/events, approval requests/actions |
+| Audit/evidence | `AuditTrail`, `EvidenceBundles` | audit events, evidence bundle generate/verify/signed PDF/visual QA |
+| Admin/RBAC | `Users`, `Organizations`, `Teams`, `Roles` | users, organizations/domains, memberships, invitations, teams, roles, sessions, MFA, object permissions |
+| Settings/identity | `General`, `Branding`, `Email`, `Storage`, `Security`, `Notifications`, `SSO` | singleton settings, organization branding/logo, SMTP/email templates, notification preferences, SSO/SCIM/LDAP/JIT/social providers |
+| System operations | `SystemHealth`, `BackgroundTasks`, `ErrorLog` | health checks, incidents, deployment readiness/APM config, task definitions/runs/events, frontend error store |
+| Compliance | `LegalHolds`, `Retention`, `DataResidency`, `ComplianceExports` | legal holds/items, retention policies, data residency regions/policies, compliance exports |
+| Billing/license | `Billing`, `License` | plans, subscriptions, usage, invoices, payment methods, payment portal sessions, payment webhook events, license keys |
+| Developer/integrations | `ApiKeys`, `OAuthApps`, `Webhooks`, `ApiDocs`, `TestLab`, `EmailMessages`, `OperationsConsole`, `ReleaseControl` | API keys/logs, OAuth apps/grants, webhooks/outbox/deliveries, OpenAPI downloads, task-run test suites, email records/templates, risk/policy/search/feature-flag controls |
 
 ---
 
@@ -199,7 +221,7 @@ Each page component should:
 
 ## Implementation Status — COMPLETE (2026-05-18)
 
-All 44 pages are fully implemented and wired to the live Django/DRF backend. The phased roadmap below is preserved for historical reference with completion markers.
+All 46 lazy-loaded pages are fully implemented and wired to the live Django/DRF backend. The phased roadmap below is preserved for historical reference with completion markers.
 
 ### Phase 1 — Core Signing Flow ✓
 - [x] `EnvelopeList` — search, filter, sort, pagination, bulk actions, drawer with document thumbnails, preview modal

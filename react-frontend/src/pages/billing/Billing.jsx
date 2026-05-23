@@ -82,6 +82,7 @@ export default function Billing() {
     (p) => p.id === subscription?.plan || p.name === subscription?.plan_name
   );
   const planFeatures = subscription?.features ?? currentPlan?.features ?? [];
+  const organizationId = subscription?.organization ?? localStorage.getItem('HANMAK_ORGANIZATION_ID');
 
   const cancelMutation = useApiMutation(
     () => {
@@ -98,7 +99,20 @@ export default function Billing() {
   );
 
   const openPortalMutation = useApiMutation(
-    (payload) => apiClient.post(EP.PAYMENT_PORTAL_SESSIONS, payload),
+    (payload) => {
+      if (!organizationId) return Promise.reject(new Error('No organization selected'));
+      if (payload.plan_id) {
+        return apiClient.post(EP.SUBSCRIPTION_CHECKOUT_SESSION, {
+          organization: organizationId,
+          plan: payload.plan_id,
+        });
+      }
+      return apiClient.post(EP.SUBSCRIPTION_BILLING_PORTAL, {
+        organization: organizationId,
+        return_url: window.location.href,
+        metadata: payload,
+      });
+    },
     {
       onSuccess: (res) => {
         const url = res?.data?.url ?? res?.url;

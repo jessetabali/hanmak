@@ -5,7 +5,7 @@ from rest_framework import status
 from rest_framework.test import APIClient
 
 from accounts.models import Membership, Organization
-from envelopes.models import Envelope
+from envelopes.models import Envelope, Recipient
 from workflow.models import WorkflowDefinition, WorkflowRun, WorkflowStage
 
 User = get_user_model()
@@ -100,9 +100,21 @@ class WorkflowRunTests(TestCase):
     def test_create_workflow_run(self):
         self.workflow.status = WorkflowDefinition.Status.ACTIVE
         self.workflow.save(update_fields=['status'])
+        WorkflowStage.objects.create(
+            workflow=self.workflow, key='signer', label='Signer', stage_type='signing', order=1,
+        )
+        Recipient.objects.create(
+            envelope=self.envelope,
+            name='Signer',
+            email='signer@example.com',
+            party_key='signer',
+        )
         response = self.client.post('/api/v1/workflow-runs/', {
             'envelope': self.envelope.id,
             'workflow': self.workflow.id,
         }, format='json')
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.data['status'], WorkflowRun.Status.RUNNING)
+        self.assertEqual(response.data['current_stage_key'], 'signer')
+        self.assertEqual(response.data['stages'][0]['party_key'], 'signer')
+        self.assertEqual(response.data['parties'][0]['party_key'], 'signer')

@@ -8,8 +8,8 @@ import hashlib
 import hmac
 import json
 
-from accounts.permissions import OrganizationRolePermission, OrganizationScopedQuerySetMixin
-from accounts.models import Organization
+from accounts.permissions import OrganizationRolePermission, OrganizationScopedQuerySetMixin, user_has_org_role, user_is_app_super_admin
+from accounts.models import Membership, Organization
 
 from .models import EmailMessage, EmailTemplate, ReminderSchedule
 from .serializers import EmailMessageSerializer, EmailTemplateSerializer, ReminderScheduleSerializer
@@ -21,7 +21,7 @@ class EmailMessageViewSet(OrganizationScopedQuerySetMixin, viewsets.ReadOnlyMode
     feature_flag_key = 'email_messages'
     queryset = EmailMessage.objects.select_related('organization', 'envelope', 'recipient', 'invitation', 'signing_session').all().order_by('-queued_at')
     serializer_class = EmailMessageSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [OrganizationRolePermission]
 
     def get_queryset(self):
         queryset = super().get_queryset()
@@ -118,6 +118,8 @@ class EmailMessageViewSet(OrganizationScopedQuerySetMixin, viewsets.ReadOnlyMode
         organization = Organization.objects.filter(id=organization_id).first()
         if not organization:
             return response.Response({'detail': 'organization was not found'}, status=404)
+        if not user_has_org_role(request.user, organization.id, OrganizationRolePermission.write_roles):
+            return response.Response({'detail': 'Admin or manager membership is required to send SMTP tests.'}, status=403)
         try:
             sent_count = send_smtp_test_email(organization, to_email)
         except Exception as exc:
@@ -136,7 +138,8 @@ class ReminderScheduleViewSet(OrganizationScopedQuerySetMixin, viewsets.ModelVie
     feature_flag_key = 'email_messages'
     queryset = ReminderSchedule.objects.select_related('organization', 'envelope', 'created_by').all().order_by('next_run_at')
     serializer_class = ReminderScheduleSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [OrganizationRolePermission]
+    write_roles = OrganizationRolePermission.write_roles
 
     def perform_create(self, serializer):
         self._assert_related_organization_access(serializer)
@@ -144,6 +147,8 @@ class ReminderScheduleViewSet(OrganizationScopedQuerySetMixin, viewsets.ModelVie
 
     @decorators.action(detail=False, methods=['post'])
     def run_due(self, request):
+        if not user_is_app_super_admin(request.user) and not Membership.objects.filter(user=request.user, role__in=OrganizationRolePermission.write_roles, is_active=True).exists():
+            return response.Response({'detail': 'Admin or manager membership is required to run reminder schedules.'}, status=403)
         run_due_reminder_schedules_task.apply_async(queue='email')
         return response.Response({'queued': True})
 

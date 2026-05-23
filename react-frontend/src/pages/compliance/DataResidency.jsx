@@ -33,7 +33,7 @@ export default function DataResidency() {
   );
   const { data: summaryData, refetch: refetchSummary } = useApiQuery(
     ['residency-summary'],
-    EP.DATA_RESIDENCY_POLICIES + '/summary/'
+    EP.DATA_RESIDENCY_POLICIES_SUMMARY
   );
 
   const regions = regionsData?.results ?? regionsData ?? [];

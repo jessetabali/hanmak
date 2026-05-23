@@ -20,10 +20,52 @@ class WorkflowDefinitionSerializer(serializers.ModelSerializer):
 
 
 class WorkflowRunSerializer(serializers.ModelSerializer):
+    workflow_name = serializers.CharField(source='workflow.name', read_only=True)
+    envelope_name = serializers.CharField(source='envelope.name', read_only=True)
+    stages = serializers.SerializerMethodField()
+    parties = serializers.SerializerMethodField()
+
     class Meta:
         model = WorkflowRun
-        fields = ['id', 'envelope', 'workflow', 'status', 'current_stage_key', 'started_at', 'completed_at']
+        fields = [
+            'id', 'envelope', 'envelope_name', 'workflow', 'workflow_name', 'status',
+            'current_stage_key', 'stages', 'parties', 'started_at', 'completed_at',
+        ]
         read_only_fields = ['id', 'started_at', 'completed_at']
+
+    def get_stages(self, obj):
+        template_stages = []
+        if obj.envelope.template_version and isinstance(obj.envelope.template_version.workflow_schema, dict):
+            template_stages = obj.envelope.template_version.workflow_schema.get('stages') or []
+        template_stage_map = {stage.get('key'): stage for stage in template_stages if stage.get('key')}
+        stages = []
+        for stage in obj.workflow.stages.order_by('order') if obj.workflow else []:
+            template_stage = template_stage_map.get(stage.key, {})
+            party_key = template_stage.get('party_key') or (stage.key if stage.stage_type in ['signing', 'approval', 'review'] else '')
+            stages.append({
+                'key': stage.key,
+                'label': stage.label,
+                'stage_type': stage.stage_type,
+                'order': stage.order,
+                'party_key': party_key,
+                'config': stage.config,
+            })
+        return stages
+
+    def get_parties(self, obj):
+        recipients = obj.envelope.recipients.order_by('routing_order', 'id')
+        return [
+            {
+                'recipient': recipient.id,
+                'party_key': recipient.party_key,
+                'name': recipient.name,
+                'email': recipient.email,
+                'role': recipient.role,
+                'status': recipient.status,
+                'routing_order': recipient.routing_order,
+            }
+            for recipient in recipients
+        ]
 
     def validate(self, attrs):
         attrs = super().validate(attrs)

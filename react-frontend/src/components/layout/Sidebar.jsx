@@ -2,6 +2,8 @@ import { NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { useUiStore } from '../../store/uiStore';
 import { useErrorLogStore } from '../../store/errorLogStore';
+import { useApiQuery } from '../../hooks/useApi';
+import { EP } from '../../api/endpoints';
 
 const NAV = [
   {
@@ -72,14 +74,38 @@ const NAV = [
 ];
 
 export default function Sidebar() {
-  const { user, logout } = useAuth();
+  const { user, logout, organizationId, globalScope, setOrganization, setGlobalScope } = useAuth();
   const { mobileSidebarOpen } = useUiStore();
   const navigate = useNavigate();
   const errorCount = useErrorLogStore((s) => s.entries.filter((e) => !e.resolved).length);
+  const isSuperAdmin = Boolean(
+    user?.is_superuser ||
+    user?.role === 'super_admin' ||
+    (Array.isArray(user?.roles) && user.roles.includes('super_admin')) ||
+    (Array.isArray(user?.memberships) && user.memberships.some((m) => m.role === 'super_admin')),
+  );
+  const { data: orgsData } = useApiQuery(
+    ['sidebar-organizations', isSuperAdmin],
+    EP.ORGANIZATIONS,
+    { page_size: 500, scope: 'all' },
+    { enabled: isSuperAdmin },
+  );
+  const organizations = orgsData?.results ?? orgsData ?? [];
 
   const handleLogout = () => {
     logout();
     navigate('/login');
+  };
+
+  const handleScopeChange = (event) => {
+    const value = event.target.value;
+    if (value === 'global') {
+      setGlobalScope();
+      navigate('/admin/organizations');
+      return;
+    }
+    const org = organizations.find((item) => String(item.id) === value);
+    if (org) setOrganization(org);
   };
 
   return (
@@ -91,6 +117,25 @@ export default function Sidebar() {
       <div className="sidebar-logo">
         <span className="sidebar-logo-text">HanMak</span>
       </div>
+
+      {isSuperAdmin && (
+        <div style={{ padding: '0 14px 12px' }}>
+          <label style={{ display: 'block', fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', fontWeight: 700, marginBottom: 6 }}>
+            Scope
+          </label>
+          <select
+            className="form-input"
+            value={globalScope ? 'global' : String(organizationId || '')}
+            onChange={handleScopeChange}
+            style={{ minHeight: 34, fontSize: 12, padding: '5px 8px' }}
+          >
+            <option value="global">Global: all organizations</option>
+            {organizations.map((org) => (
+              <option key={org.id} value={org.id}>{org.name}</option>
+            ))}
+          </select>
+        </div>
+      )}
 
       <nav className="sidebar-nav">
         {NAV.map((section) => (

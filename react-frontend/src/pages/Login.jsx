@@ -33,7 +33,7 @@ export default function Login() {
         password: form.password,
       });
       setAuthTokens(data.access, data.refresh);
-      if (data.organization_id) {
+      if (data.organization_id && localStorage.getItem('HANMAK_IS_SUPER_ADMIN') !== 'true') {
         localStorage.setItem('HANMAK_ORGANIZATION_ID', String(data.organization_id));
       }
       await fetchMe();
