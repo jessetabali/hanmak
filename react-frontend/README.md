@@ -2,7 +2,7 @@
 
 Production React frontend for HanMak — enterprise document signing platform.
 
-This replaces the vanilla JS prototype (`hanmak_demo_mock_directory/`) with a maintainable, component-based architecture using the same Django/DRF backend.
+This is the active browser frontend for HanMak, using the same Django/DRF backend.
 
 ## Stack
 
@@ -80,7 +80,7 @@ src/
 │   ├── compliance/
 │   ├── billing/
 │   └── developer/
-├── router.jsx            All routes — mirrors the vanilla JS page registry
+├── router.jsx            All active React routes
 ├── store/
 │   ├── authStore.js      Zustand — JWT, user, organization state + login/logout
 │   └── uiStore.js        Zustand — sidebar collapsed/mobile state
@@ -163,16 +163,15 @@ Copy `.env.example` to `.env` and set:
 | PDF rendering | Real as of 2026-05-20 | Backend uses Poppler (`pdftoppm`) — pages show actual document content |
 | Envelope/Template create | Full parity 2026-05-20 | Async handlers with `create-from-template`, party/role assignment, "Save Draft" + "Create & Send" |
 
-## Mapping from Vanilla JS Prototype
+## Frontend Patterns
 
-| Vanilla JS concept | React equivalent |
+| Concern | React pattern |
 |---|---|
-| `registerPage(id, fn)` | A page component in `src/pages/` + a route in `router.jsx` |
-| `navigate(pageId)` | `useNavigate()` / `<Link to="...">` |
-| `${pageId}_init()` hook | `useEffect` + TanStack Query in the page component |
-| `hanmakApi('/path/')` | `apiClient.get/post/patch/delete` via `useApiQuery` / `useApiMutation` |
-| `showToast(msg, type)` | `useToast().showToast(msg, type)` |
-| `openModal(html)` | A modal component with React state |
-| `hydrateShellChrome()` | `authStore` + component-level `useApiQuery` calls |
-| `registerPage` for settings | Nested route + `SettingsLayout` with `<Outlet>` |
-| `settingsNav(active)` | `SettingsLayout.jsx` using `<NavLink>` — active state is automatic |
+| Route ownership | A page component in `src/pages/` + a route in `router.jsx` |
+| Navigation | `useNavigate()` / `<Link to="...">` |
+| Server data | TanStack Query in the page component |
+| API calls | `apiClient.get/post/patch/delete` via `useApiQuery` / `useApiMutation` |
+| Toasts | `useToast().showToast(msg, type)` |
+| Modals | A modal component with React state |
+| Shell chrome | `authStore` + component-level `useApiQuery` calls |
+| Settings | Nested route + `SettingsLayout` with `<Outlet>` |

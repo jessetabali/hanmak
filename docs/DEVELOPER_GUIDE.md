@@ -4,25 +4,23 @@ This guide explains how HanMak is structured, how to run it, how to test it, and
 
 ## 1. Project Structure
 
-HanMak has three main parts:
+HanMak has two active main parts:
 
 ```text
 backend/                    Django + DRF API
 react-frontend/             React 18 production frontend (Vite + TanStack Query + Zustand)
-hanmak_demo_mock_directory/  Vanilla JS beta prototype (fully live-wired reference)
 docs/                       Application documentation
 ```
 
 Important frontend files:
 
 ```text
-app.js          Router, page registry, feature gating, toasts, modals, icons
-api-client.js   API client, JWT storage, refresh handling
-live-wiring.js  Most live API integrations and public signing flow
-developer.js    Developer tools, Operations Console, Release Control
-admin.js        Users, organizations, teams, roles
-settings.js     Settings pages
-system.js       Background tasks and system health
+src/router.jsx           React route registry
+src/api/client.js        Axios client, JWT attach, refresh handling
+src/api/endpoints.js     Central API endpoint registry
+src/store/authStore.js   Auth, user, organization, and super-admin scope state
+src/components/layout/   Shell, sidebar, topbar, auth guard, error boundary
+src/pages/               Feature pages for each route
 ```
 
 Important backend apps:
@@ -87,7 +85,7 @@ Serve `dist/` from Nginx at `/` and proxy `/api/` to Gunicorn (see `docs/REACT_F
 Key source files:
 
 ```text
-src/router.jsx           All routes — matches every vanilla JS page ID
+src/router.jsx           All active React routes
 src/api/client.js        Axios + JWT attach + 401-refresh interceptors
 src/api/endpoints.js     Central EP constant registry (150+ API paths)
 src/hooks/useApi.js      useApiQuery + useApiMutation wrappers
@@ -108,14 +106,11 @@ python manage.py seed_demo
 python manage.py runserver 127.0.0.1:8003
 ```
 
-Then start the React frontend (section 2) or the vanilla JS beta via Nginx:
+Then start the React frontend (section 2), or use Docker/Nginx for the full stack:
 
 ```text
-http://127.0.0.1:8003/mock/   # Direct (no Nginx)
-http://127.0.0.1:8080/mock/   # Via Docker/Nginx
+http://127.0.0.1:8080/
 ```
-
-For beta testing the vanilla JS frontend, see `docs/BETA_FRONTEND_READINESS.md`.
 
 Demo login:
 
@@ -134,7 +129,7 @@ docker compose -f docker-compose.dev.yml up --build
 Useful URLs:
 
 ```text
-Mock UI:             http://127.0.0.1:8080/mock/
+React app:           http://127.0.0.1:8080/
 Nginx API:           http://127.0.0.1:8080/api/v1/
 Nginx API docs:      http://127.0.0.1:8080/api/v1/docs/
 Direct backend:      http://127.0.0.1:8003/api/v1/
@@ -145,28 +140,7 @@ MinIO:               http://127.0.0.1:9001/
 
 ## 5. Frontend Architecture
 
-The mock uses a simple page registry:
-
-```js
-registerPage('dashboard', () => `...html...`);
-navigate('dashboard');
-```
-
-After rendering, the router calls an init hook if it exists:
-
-```text
-dashboard_init()
-settings_general_init()
-release_control_init()
-```
-
-The API client is:
-
-```js
-hanmakApi('/envelopes/')
-```
-
-It automatically attaches JWT access tokens and attempts a refresh on `401`.
+The React app uses React Router for route ownership, TanStack Query for API-backed data, and Zustand for auth/UI state. API calls go through `apiClient`, which attaches JWT access tokens, includes the selected organization header, supports super-admin global scope, refreshes on `401`, and logs non-auth API failures to the frontend error log.
 
 ## 6. Release Control And Feature Gating
 
@@ -202,7 +176,7 @@ POST /api/v1/feature-flags/{id}/release/
 GET  /api/v1/feature-flags/summary/
 ```
 
-The mock router maps pages to feature keys in `hanmak_demo_mock_directory/app.js`.
+React pages and backend viewsets share release-control feature keys.
 
 When Release Control loads, it caches flags in:
 
@@ -513,10 +487,12 @@ Check migrations:
 docker compose -f docker-compose.dev.yml exec backend python manage.py makemigrations --check --dry-run
 ```
 
-Check frontend syntax:
+Check frontend lint/build:
 
 ```bash
-for f in hanmak_demo_mock_directory/*.js; do node --check "$f" || exit 1; done
+cd react-frontend
+npm run lint
+npm run build
 ```
 
 Test coverage spans these modules: `accounts` (tenant API + security), `api_keys`, `approvals`, `auditlog`, `billing`, `compliance`, `documents`, `evidence`, `inbox`, `risk`, `tasks`, `workflow`, `analytics`, `signing`.
@@ -561,7 +537,7 @@ To write throttle tests, use `@override_settings` with a tight `DEFAULT_THROTTLE
 
 ## 15. Click-Through Audits
 
-When checking the mock/live UI, visible module actions should either call a backend API, open a real data modal, download/export real generated content, or be deliberately disabled with clear copy. Avoid new `onclick="showToast(...)"` actions for create/save/delete/send/retry/release/delegate/export flows.
+When checking the React UI, visible module actions should either call a backend API, open a real data modal, download/export real generated content, or be deliberately disabled with clear copy.
 
 The next required QA pass is Docker click-through through Nginx:
 
@@ -572,7 +548,7 @@ docker compose -f docker-compose.dev.yml up --build
 Open:
 
 ```text
-http://127.0.0.1:8080/mock/
+http://127.0.0.1:8080/
 ```
 
 Click-through scope:
@@ -589,27 +565,18 @@ For each visible action, classify the result as:
 - `fix` — action errors, points to stale static data, or leaves the UI inconsistent.
 - `defer` — action is intentionally production-only and should be disabled or documented.
 
-Useful audit commands:
-
-```bash
-rg -n "onclick=\"showToast\\(" hanmak_demo_mock_directory/*.js
-rg -n "function .*Live|registerPage\\(" hanmak_demo_mock_directory/*.js
-```
-
-After changing frontend wiring, run the JS syntax loop above, `backend/manage.py check`, and focused backend tests for the endpoints used by the changed buttons.
+After changing frontend wiring, run React lint/build, `backend/manage.py check`, migration checks, and focused backend tests for the endpoints used by the changed buttons.
 
 ## 16. Production Readiness Boundaries
 
 These areas now have MVP-level live wiring and explicit production boundaries:
 
-- Production auth shell: the mock login shell now shows MFA/passkey/lockout cues, explicit recovery guidance, neutral reset responses, and next-step messaging for lost second factors. A fully separate branded public production shell and localization remain future polish.
+- Production auth shell: the React login shell shows MFA/passkey/lockout cues, explicit recovery guidance, neutral reset responses, and next-step messaging for lost second factors. Localization remains future polish.
 - Payment providers: `POST /api/v1/billing/payment-webhook/?provider=stripe|adyen|mock` records webhook events, validates configured signatures, de-duplicates events, and reconciles checkout sessions/subscriptions/invoices when metadata identifies the organization/session. Real provider checkout/portal session creation, taxes, refunds, receipts, and subscription edge cases remain provider-specific work.
 - Observability: optional Sentry/OpenTelemetry bootstrap is controlled by env vars, health summaries expose runtime APM status, and `/api/v1/health-checks/deployment-readiness/` reports production-readiness checks. System Health also exposes readiness details, public status publishing, alert subscriptions, thresholds, and `/api/v1/health-checks/deployment-runbook/`; hosted trace dashboards remain provider-specific production work.
 - Search quality: `/api/v1/search/` returns rank details and uses Postgres full-text ranking when the database supports it, with weighted-term fallback for SQLite/dev. Stemming dictionaries, synonyms, typo tolerance, and cross-object tuning remain future work.
 - Deployment hardening: readiness checks cover DEBUG, secret key, allowed hosts, CORS, database backend, SSL redirects, secure cookies, HSTS, static root, media policy, database/media backup policy, restore drill timestamp, secrets manager, TLS primary domain, APM, external alerts, and payment webhook secrets. See `docs/DEPLOYMENT_HARDENING_RUNBOOK.md`.
 - SDK/API runner: SDK snippets are live, and Test Lab reads/writes backend `/task-runs/` for run status, details, reports, scheduling, suite runs, and failed-suite reruns; an in-browser authenticated API request runner is still deferred.
-
-2026-05-15 verification checkpoint: the active Test Lab page is the `live-wiring.js` implementation loaded last by the mock shell, `/api/v1/task-runs/` and `/api/v1/sso-connections/` returned `200` through Docker/Nginx, and the relevant frontend files passed `node --check`.
 
 Useful production env vars:
 
@@ -635,11 +602,11 @@ Recommended steps:
 2. Register the viewset in `backend/hanmak/urls.py`.
 3. Add service-layer logic if orchestration spans multiple models.
 4. Add or update tests.
-5. Wire the frontend page or init hook.
+5. Wire the React frontend page or route.
 6. Add a release-control default in `DEFAULT_RELEASE_MODULES`.
 7. Map the page to the release key in `PAGE_FEATURE_FLAGS`.
-8. Update `MOCK_ALIGNMENT.md`, `PLAN_ALIGNMENT.md`, and relevant guides.
-9. Run backend checks, migration checks, JS syntax checks, and focused tests.
+8. Update `PLAN_ALIGNMENT.md` and relevant guides.
+9. Run backend checks, migration checks, React lint/build, and focused tests.
 
 ## 18. Documentation Files
 
@@ -647,7 +614,6 @@ Primary docs:
 
 ```text
 backend/README.md
-backend/MOCK_ALIGNMENT.md
 backend/PLAN_ALIGNMENT.md
 docs/USER_GUIDE.md
 docs/DEVELOPER_GUIDE.md
@@ -655,4 +621,4 @@ docs/HOW_IT_WORKS.md          End-to-end mechanics: template creation, signing, 
 Project_Overview.md
 ```
 
-Keep alignment docs updated whenever a feature changes from mock/static to live/backend-backed.
+Keep docs updated whenever a feature changes behavior, API shape, or release readiness.

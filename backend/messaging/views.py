@@ -177,7 +177,7 @@ class EmailTemplateViewSet(OrganizationScopedQuerySetMixin, viewsets.ModelViewSe
             'recipient_email': request.data.get('recipient_email', 'signer@example.com'),
             'sender_name': request.data.get('sender_name', request.user.get_username()),
             'due_date': request.data.get('due_date', 'May 31, 2026'),
-            'signing_url': request.data.get('signing_url', 'https://example.com/mock/?token=sample'),
+            'signing_url': request.data.get('signing_url', 'https://example.com/sign/sample-token'),
         }
         return response.Response({
             'subject': render_template_string(template.subject_template, context),

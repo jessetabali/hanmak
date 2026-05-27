@@ -7,7 +7,7 @@ This backend has been expanded using `Documentation/Initial Development Plan/bas
 - Organization, team, membership foundation.
 - Admin organization management: editable organization profile, subsidiaries, verified domain records, organization export, ownership transfer, hardened deletion request/confirmation flow, live teams, memberships, invitations, direct managed user creation, users, and assignable custom role permissions.
 - First-time setup and invitation acceptance: public setup-token inspection/completion, invitation-token inspection/acceptance, expiry handling, resend/revoke lifecycle actions, setup-token cancellation, username collision validation, and automatic setup/invite email delivery.
-- Dedicated mock/live sign-in page, sign-out control, token refresh helper, and setup/invite completion handoff into authenticated app state.
+- Dedicated React sign-in page, sign-out control, token refresh helper, and setup/invite completion handoff into authenticated app state.
 - Public forgot-password request endpoint and mock login reset dialog queue reset/setup emails without account enumeration.
 - Branding assets: organization logo upload with image type/size validation, branding settings endpoint, and email/UI usage of uploaded logo and theme values.
 - Envelope CRUD, recipients, send/void actions.
@@ -213,7 +213,7 @@ This backend has been expanded using `Documentation/Initial Development Plan/bas
 The React frontend scaffold (`react-frontend/`) was initialized 2026-05-18 and provides:
 
 - Vite 5 + React 18 + React Router v6 + TanStack Query v5 + Zustand + Axios
-- Full route map matching every vanilla JS page ID
+- Full route map covering every active product surface
 - Axios client with JWT attach, 401-refresh-and-replay, and `X-HanMak-Organization` header
 - Central endpoint registry (`api/endpoints.js`) covering ~80 API paths
 - `useApiQuery` + `useApiMutation` wrappers over TanStack Query
@@ -237,18 +237,18 @@ See `docs/REACT_FRONTEND_ARCHITECTURE.md` for the full implementation roadmap. P
 5. **Phase 5 — Developer tools**: ApiKeys, OAuthApps, Webhooks, OperationsConsole, ReleaseControl
 6. **Phase 6 — Compliance & billing**: Full forms and live data for all compliance/billing pages
 
-### Vanilla JS Prototype Retirement
+### Legacy Frontend Retirement
 
-`hanmak_demo_mock_directory/` remains the live beta prototype and reference implementation. It will be retired (removed from active serving) once the React frontend completes Phase 3 and passes the same Docker click-through QA that the vanilla JS frontend passed.
+The legacy mock frontend has been retired. React is the only active served browser frontend.
 
 ---
 
 ## Still To Add Later
 
-- Production-grade auth shell polish beyond the mock shell: fully separate public production pages, localization, and deeper recovery UX.
+- Production-grade auth shell polish: localization and deeper recovery UX.
 - Robust production antivirus integration and visual QA for complex PDFs.
 - Full SendGrid ECDSA signature verification helper integration, beyond the current signed-header enforcement.
-- Full signer portal frontend beyond the mock/live-wired public signing page.
+- Further signer portal polish beyond the current React public signing page.
 - Production OAuth login mapping/account-linking rules, provider certificate rotation, and complete SCIM group lifecycle.
 - Search relevance beyond the current Postgres full-text / weighted-term ranking: stemming dictionaries, synonyms, typo tolerance, and cross-object relevance tuning.
 - PyMuPDF as an optional rendering upgrade over Poppler for environments without `pdftoppm` (Poppler is now the active renderer; PyMuPDF path can be added as a first-priority branch in `generate_document_page_images()` when `fitz` is importable).

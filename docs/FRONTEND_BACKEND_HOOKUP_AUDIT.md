@@ -110,7 +110,7 @@ The React production frontend (`react-frontend/`) is fully implemented. All 46 l
 | `useApiMutation` `invalidateKeys` never ran when `onSuccess` was also provided | `src/hooks/useApi.js` | Spreading `...options` at end of `useMutation({})` overwrote the wrapped `onSuccess`, so cache invalidation was silently skipped for all 124 mutations in the app. Fixed by destructuring `onSuccess` out of options before the spread. |
 | Toggle enable/disable didn't refresh app list | `developer/OAuthApps.jsx` | Caused by the `useApiMutation` hook bug above; now fixed. Toggle correctly sends `{status:'active'/'disabled'}`. |
 | Delete didn't remove app from list | `developer/OAuthApps.jsx` | Same root cause — `invalidateKeys` didn't run. Fixed by hook fix. |
-| OAuth scope names were generic (`read`, `write`) | `developer/OAuthApps.jsx` | Changed `ALL_SCOPES` to namespaced scopes matching the vanilla JS reference: `envelopes:read`, `envelopes:write`, `templates:read`, `signatures:write`, `users:read`. |
+| OAuth scope names were generic (`read`, `write`) | `developer/OAuthApps.jsx` | Changed `ALL_SCOPES` to namespaced scopes used by the backend: `envelopes:read`, `envelopes:write`, `templates:read`, `signatures:write`, `users:read`. |
 | Edit modal had no status field | `developer/OAuthApps.jsx` | Added Status dropdown (Active/Disabled) to `AppFormModal` when editing; payload now includes `status` on PATCH. |
 
 ## 2026-05-20 FormBuilder Enhancements

@@ -76,7 +76,7 @@ class FeatureFlagGateTests(TestCase):
         'HANMAK_PRIMARY_DOMAIN': 'localhost:8080',
         'HANMAK_TLS_REDIRECT_CONFIGURED': 'true',
         'OTEL_EXPORTER_OTLP_ENDPOINT': 'http://otel-collector:4318',
-        'HANMAK_ALERT_WEBHOOK_URL': 'http://localhost:8080/mock/alerts',
+        'HANMAK_ALERT_WEBHOOK_URL': 'http://alerts.example/webhook',
         'HANMAK_PAYMENT_WEBHOOK_SECRET': 'dev-payment-webhook-secret',
     }, clear=False)
     def test_deployment_readiness_accepts_deployment_evidence_env(self):

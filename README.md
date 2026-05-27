@@ -7,7 +7,6 @@ HanMak is a feature-complete DocuSign/PandaDoc alternative with PDF upload, form
 | Directory | What it is |
 |---|---|
 | `react-frontend/` | **Production frontend** — React 18 + Vite 5 + TanStack Query v5 + Zustand + Axios |
-| `hanmak_demo_mock_directory/` | Vanilla JS beta prototype — fully live-wired reference used for design/API reference |
 | `backend/` | Django 6.0 + DRF + simplejwt API server |
 | `docs/` | Architecture, developer guide, user guide, audit notes |
 
@@ -17,7 +16,6 @@ HanMak is a feature-complete DocuSign/PandaDoc alternative with PDF upload, form
 ```bash
 docker compose -f docker-compose.dev.yml up --build
 # React frontend  →  http://127.0.0.1:8080/
-# Vanilla JS beta →  http://127.0.0.1:8080/mock/
 # Mailhog SMTP UI →  http://127.0.0.1:8025/
 ```
 
@@ -48,13 +46,12 @@ Demo credentials: `admin / admin123`
 | `docs/USER_GUIDE.md` | Operator and signer workflows |
 | `docs/REACT_FRONTEND_ARCHITECTURE.md` | React frontend route map, conventions, component guide |
 | `docs/FRONTEND_BACKEND_HOOKUP_AUDIT.md` | Endpoint hookup coverage matrix |
-| `backend/MOCK_ALIGNMENT.md` | Vanilla JS prototype ↔ backend alignment reference |
 | `backend/PLAN_ALIGNMENT.md` | Full implementation history and build plan notes |
 
 ## Current Status (2026-05-20)
 
 - **Backend:** Django 6.0, 18 apps, ~65 models, 91 tenant-scoped API tests passing.
-- **React frontend:** All 44 pages fully implemented and live-wired to the backend.
+- **React frontend:** All 44 pages fully implemented and live-wired to the backend; it is now the only served frontend.
 - **PDF rendering:** Real PDF→PNG conversion via Poppler (`pdftoppm`) — page images shown in Form Builder and public signing view reflect actual document content.
 - **Public signing:** Submit and decline payloads corrected; field overlay pages correctly derived from session data.
 - **Form Builder:** Page loading chain fixed; actual rendered pages load from `prepare-for-builder` response.

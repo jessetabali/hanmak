@@ -56,7 +56,6 @@ services:
       - "${NGINX_PORT:-8080}:80"
     volumes:
       - ./nginx/dev.conf:/etc/nginx/conf.d/default.conf:ro
-      - ./hanmak_demo_mock_directory:/app/mock:ro
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1/api/v1/health-checks/live/"]
       interval: 10s

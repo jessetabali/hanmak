@@ -1,6 +1,6 @@
 # Project Overview
 
-HanMak is a feature-complete enterprise document-signing platform — think DocuSign/PandaDoc. The repo has three parts: a vanilla-JS SPA beta prototype, a React production frontend, and a Django/DRF backend.
+HanMak is a feature-complete enterprise document-signing platform — think DocuSign/PandaDoc. The repo has two active parts: a React production frontend and a Django/DRF backend.
 
 ---
 
@@ -8,15 +8,14 @@ HanMak is a feature-complete enterprise document-signing platform — think Docu
 
 Vite 5 + React 18 + React Router v6 + TanStack Query v5 + Zustand + Axios.
 
-This is the production frontend. All 44 pages are fully implemented and live-wired to the Django/DRF backend (~22,000 lines). It replaces the vanilla JS prototype for all active development.
+This is the production frontend. All 44 pages are fully implemented and live-wired to the Django/DRF backend (~22,000 lines). It is now the only served frontend.
 
-See `docs/REACT_FRONTEND_ARCHITECTURE.md` for the full architecture guide, route map, data-fetching conventions, known bugs fixed, and React/mock parity status.
+See `docs/REACT_FRONTEND_ARCHITECTURE.md` for the full architecture guide, route map, data-fetching conventions, and known bugs fixed.
 
 **Dev server (Docker):**
 ```bash
 docker compose -f docker-compose.dev.yml up
 # React frontend: http://127.0.0.1:8080/
-# Vanilla JS beta: http://127.0.0.1:8080/mock/
 ```
 
 **Standalone:**
@@ -24,25 +23,6 @@ docker compose -f docker-compose.dev.yml up
 cd react-frontend && npm install && npm run dev
 # http://localhost:5173/
 ```
-
----
-
-## Vanilla JS Beta Frontend (`hanmak_demo_mock_directory/`) — Beta Prototype
-
-~13,000 lines across 27 JS files, no build step. Fully live-wired to the DRF backend. Used for beta testing and as the source-of-truth reference for every page's backend API surface and UX design. Will be retired once the React frontend reaches feature parity.
-
-Architecture is a hand-rolled SPA:
-
-| File | Role |
-|---|---|
-| `app.js` | Router (`navigate()`, `registerPage()`), toast, modal, utility icons |
-| `api-client.js` | `hanmakApi()` fetch wrapper with 401-retry/refresh, token storage, login/logout helpers |
-| `live-wiring.js` | ~2,827 lines — the main integration layer; most pages' `_init()` hooks live here |
-| Domain files | `envelopes.js`, `templates.js`, `signing.js`, `admin.js`, `settings.js`, `system.js`, `compliance.js`, `business.js`, `developer.js`, `sso.js`, etc. — each calls `registerPage()` for its sections |
-
-**Init hook convention:** `navigate('settings-general')` renders the HTML string, then calls `settings_general_init()` if it exists. That function fetches from the API and populates the DOM. This is how mock → live wiring works throughout.
-
-**Auth:** JWT tokens in `localStorage` (`HANMAK_ACCESS_TOKEN`, `HANMAK_REFRESH_TOKEN`). `ensureHanmakApi()` tries the refresh token first, then auto-attempts login with demo credentials (`admin` / `admin123`) if no token is present. Organization ID is also cached (`HANMAK_ORGANIZATION_ID`). Token version guard in `api-client.js` clears stale tokens when auth config changes.
 
 ---
 
@@ -105,7 +85,7 @@ GET requests are gated by object-level grants; mutations require `admin` or `man
 
 ## Integration State
 
-The vast majority of the surface area is live-wired in both the vanilla JS prototype and the React frontend. See `MOCK_ALIGNMENT.md` for vanilla JS alignment detail. See `docs/REACT_FRONTEND_ARCHITECTURE.md` for React frontend hookup status and parity closure notes.
+The active product surface is live-wired through the React frontend and Django/DRF backend. See `docs/REACT_FRONTEND_ARCHITECTURE.md` for React frontend hookup status and parity closure notes.
 
 **Fully wired (both frontends):**
 - Users, Organisations, Teams, Roles & Permissions (including delete)
@@ -129,9 +109,7 @@ Detailed guides:
 | `docs/USER_GUIDE.md` | Product workflow guide for operators, admins, signers, reviewers, and release managers |
 | `docs/DEVELOPER_GUIDE.md` | Architecture, run commands, API patterns, release-control workflow, testing, and feature-extension guide |
 | `docs/REACT_FRONTEND_ARCHITECTURE.md` | React frontend architecture, route map, conventions, and implementation roadmap |
-| `docs/BETA_FRONTEND_READINESS.md` | Beta testing checklist and readiness notes for the vanilla JS prototype |
-| `docs/MVP_READINESS_CHECKLIST.md` | Final automated/manual gates for MVP sign-off and vanilla JS mock removal |
-| `backend/MOCK_ALIGNMENT.md` | Vanilla JS mock-to-backend alignment status (reference for React implementation) |
+| `docs/MVP_READINESS_CHECKLIST.md` | Final automated/manual gates for MVP sign-off |
 | `backend/PLAN_ALIGNMENT.md` | Build-plan and implementation alignment notes |
 
 **Current verification checkpoint (2026-05-20):**
@@ -146,12 +124,12 @@ Detailed guides:
 - **PublicSigning document pages fixed 2026-05-20:** Pages now derived from `session.documents[].document_detail.pages[]` sorted by document `order` then `page_number`. The previous path `session?.pages` never existed.
 - **EP constants corrected 2026-05-20:** Added `MFA_TOTP_BEGIN`, `MFA_TOTP_CONFIRM`, `MFA_PASSKEY_BEGIN_REG`, `MFA_PASSKEY_FINISH_REG`, `TASK_RUN_SUMMARY`, `EMAIL_MESSAGES`, `EMAIL_TEMPLATES`, `ENVELOPE_BULK`, `ENVELOPE_SUMMARY`, `ENVELOPE_CREATE_FROM_TEMPLATE` (using correct hyphenated path). `Profile.jsx` and `BackgroundTasks.jsx` updated to use constants instead of hardcoded strings.
 - **Template/Envelope creation parity 2026-05-20:** Both TemplateList and EnvelopeList creation modals use async multi-step flows matching the mock: `create-from-template` when a versioned template is selected, with per-recipient `{party_key, routing_order, role}` and optional existing-document attachment for scratch envelopes.
-- **React mock-removal parity 2026-05-20:** Public signing delegation and Envelope Detail recipient delegation are implemented in React, the stale backend `create_from_template` test path is corrected to `create-from-template`, `npm run lint` now has a real ESLint config, normal `npm run build` regenerates `dist/` with local ownership, and MVP/mock-removal gates are tracked in `docs/MVP_READINESS_CHECKLIST.md`.
+- **React parity closure 2026-05-20:** Public signing delegation and Envelope Detail recipient delegation are implemented in React, the stale backend `create_from_template` test path is corrected to `create-from-template`, `npm run lint` now has a real ESLint config, normal `npm run build` regenerates `dist/` with local ownership, and MVP gates are tracked in `docs/MVP_READINESS_CHECKLIST.md`.
 - **UI/UX modernized 2026-05-20:** `index.css` rewritten (288 → 545 lines) with DM Sans body font, card shadow + hover lift, button focus rings, modal backdrop blur + slide-up animation, toast left-accent bars, custom scrollbars, sticky table headers. Critical bug fixed: `.card-title` and `.card-header` had no CSS definition despite being referenced in `Dashboard.jsx` and `WorkflowBuilder.jsx`.
 - Next checkpoint is Docker click-through QA through `http://127.0.0.1:8080/` (React frontend) to verify every browser-visible action against the Nginx-proxied stack.
 
 **Partially wired / production polish remaining:**
-- Release Control now gates the mock frontend and selected backend endpoints directly through `feature_flag_key` checks on org-scoped viewsets and explicit APIView checks.
+- Release Control gates selected backend endpoints directly through `feature_flag_key` checks on org-scoped viewsets and explicit APIView checks.
 - Storage settings persist backend/bucket/endpoint and health checks; production cloud credential lifecycle still needs real secrets management.
 - SSO/OIDC/SAML/SCIM/LDAP surfaces are modeled and validation endpoints exist; production providers still require real metadata, certificates, redirect URIs, and account-mapping policy.
 - Billing has checkout/portal handoff records plus webhook ingestion/reconciliation; production payment processor integration still needs real provider-side checkout/portal creation, taxes, refunds, receipts, and subscription edge-case handling.

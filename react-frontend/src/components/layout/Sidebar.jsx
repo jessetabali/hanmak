@@ -1,4 +1,6 @@
+import { useState } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../../hooks/useAuth';
 import { useUiStore } from '../../store/uiStore';
 import { useErrorLogStore } from '../../store/errorLogStore';
@@ -77,6 +79,8 @@ export default function Sidebar() {
   const { user, logout, organizationId, globalScope, setOrganization, setGlobalScope } = useAuth();
   const { mobileSidebarOpen } = useUiStore();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const [switchingScope, setSwitchingScope] = useState(false);
   const errorCount = useErrorLogStore((s) => s.entries.filter((e) => !e.resolved).length);
   const isSuperAdmin = Boolean(
     user?.is_superuser ||
@@ -84,7 +88,7 @@ export default function Sidebar() {
     (Array.isArray(user?.roles) && user.roles.includes('super_admin')) ||
     (Array.isArray(user?.memberships) && user.memberships.some((m) => m.role === 'super_admin')),
   );
-  const { data: orgsData } = useApiQuery(
+  const { data: orgsData, isLoading: loadingOrganizations, isFetching: fetchingOrganizations } = useApiQuery(
     ['sidebar-organizations', isSuperAdmin],
     EP.ORGANIZATIONS,
     { page_size: 500, scope: 'all' },
@@ -97,15 +101,28 @@ export default function Sidebar() {
     navigate('/login');
   };
 
-  const handleScopeChange = (event) => {
+  const refreshForScopeChange = async () => {
+    await queryClient.invalidateQueries();
+    await queryClient.refetchQueries({ type: 'active' });
+  };
+
+  const handleScopeChange = async (event) => {
     const value = event.target.value;
-    if (value === 'global') {
-      setGlobalScope();
-      navigate('/admin/organizations');
-      return;
+    setSwitchingScope(true);
+    try {
+      if (value === 'global') {
+        setGlobalScope();
+        await refreshForScopeChange();
+        return;
+      }
+      const org = organizations.find((item) => String(item.id) === value);
+      if (org) {
+        setOrganization(org);
+        await refreshForScopeChange();
+      }
+    } finally {
+      setSwitchingScope(false);
     }
-    const org = organizations.find((item) => String(item.id) === value);
-    if (org) setOrganization(org);
   };
 
   return (
@@ -127,13 +144,21 @@ export default function Sidebar() {
             className="form-input"
             value={globalScope ? 'global' : String(organizationId || '')}
             onChange={handleScopeChange}
+            disabled={loadingOrganizations || switchingScope}
             style={{ minHeight: 34, fontSize: 12, padding: '5px 8px' }}
           >
-            <option value="global">Global: all organizations</option>
+            <option value="global">
+              {loadingOrganizations ? 'Loading organizations...' : 'Global: all organizations'}
+            </option>
             {organizations.map((org) => (
               <option key={org.id} value={org.id}>{org.name}</option>
             ))}
           </select>
+          {(switchingScope || fetchingOrganizations) && (
+            <div style={{ marginTop: 6, fontSize: 11, color: 'var(--text-muted)' }}>
+              {switchingScope ? 'Switching organization...' : 'Refreshing organizations...'}
+            </div>
+          )}
         </div>
       )}
 

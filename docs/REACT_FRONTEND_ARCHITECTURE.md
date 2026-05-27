@@ -1,6 +1,6 @@
 # HanMak React Frontend Architecture
 
-This document describes the architecture, conventions, and implementation roadmap for the production React frontend (`react-frontend/`). The vanilla JS prototype (`hanmak_demo_mock_directory/`) remains the live-wired beta reference and will be retired once the React frontend reaches feature parity.
+This document describes the architecture, conventions, and implementation roadmap for the production React frontend (`react-frontend/`). React is now the only served browser frontend.
 
 ---
 
@@ -13,7 +13,7 @@ This document describes the architecture, conventions, and implementation roadma
 | Routing | **React Router v6** | Nested routes make `SettingsLayout` and future sub-shells trivial |
 | Server state | **TanStack Query v5** | Caching, background refetch, pagination, optimistic updates |
 | Client state | **Zustand v4** | Minimal boilerplate for auth/UI state that doesn't belong in the server cache |
-| HTTP | **Axios** | Interceptors for JWT attach and 401-refresh; matches the existing `hanmakApi()` contract |
+| HTTP | **Axios** | Interceptors for JWT attach, organization scope, super-admin global scope, and 401-refresh |
 
 ---
 
@@ -58,7 +58,7 @@ react-frontend/
 
 ## Route Map
 
-Every route in `router.jsx` mirrors the page IDs from the vanilla JS `registerPage()` registry.
+Every route in `router.jsx` maps to an active product surface.
 
 ```
 /login                        Login (no shell)
@@ -185,7 +185,7 @@ Direct `apiClient` usage is acceptable for one-off mutations that don't need que
 
 ## Settings Sub-Navigation
 
-Settings pages use React Router nested routes under `SettingsLayout`, which renders a left `<nav>` of `<NavLink>` items and an `<Outlet>` for the active section. Active highlighting is handled automatically by React Router — no manual DOM manipulation required. This replaces the `settingsNav(active)` function and its inline active-state logic from the vanilla JS prototype.
+Settings pages use React Router nested routes under `SettingsLayout`, which renders a left `<nav>` of `<NavLink>` items and an `<Outlet>` for the active section. Active highlighting is handled automatically by React Router.
 
 ---
 
@@ -201,21 +201,21 @@ Each page component should:
 
 ---
 
-## Mapping from Vanilla JS Prototype
+## Frontend Patterns
 
-| Vanilla JS pattern | React equivalent |
+| Concern | React pattern |
 |---|---|
-| `registerPage(id, () => html)` | Page component in `src/pages/` + route in `router.jsx` |
-| `navigate(pageId)` | `useNavigate()` hook or `<Link to="...">` |
-| `${pageId}_init()` hook called after render | `useApiQuery` declared at the top of the page component |
-| `hanmakApi('/envelopes/')` | `apiClient.get(EP.ENVELOPES)` via `useApiQuery` |
-| `showToast(msg, type, duration)` | `useToast().showToast(msg, type, duration)` |
-| `openModal(htmlString)` | A modal component with `useState(false)` open state |
-| `openDrawer(htmlString)` | A drawer component with `useState(false)` open state |
-| `hydrateShellChrome()` | `authStore` + `useApiQuery` in `Sidebar` / `Topbar` |
-| `settingsNav(active)` | `SettingsLayout` with React Router `<NavLink>` — active state automatic |
-| `currentPage` global | `useLocation().pathname` via React Router |
-| `localStorage.HANMAK_ACCESS_TOKEN` | `authStore.isAuthenticated` + `api/client.js` interceptors |
+| Route ownership | Page component in `src/pages/` + route in `router.jsx` |
+| Navigation | `useNavigate()` hook or `<Link to="...">` |
+| Server data | `useApiQuery` declared at the top of the page component |
+| API calls | `apiClient.get(EP.ENVELOPES)` via `useApiQuery` |
+| Toasts | `useToast().showToast(msg, type, duration)` |
+| Modals | A modal component with `useState(false)` open state |
+| Drawers | A drawer component with `useState(false)` open state |
+| Shell chrome | `authStore` + `useApiQuery` in `Sidebar` / `Topbar` |
+| Settings nav | `SettingsLayout` with React Router `<NavLink>` |
+| Current location | `useLocation().pathname` via React Router |
+| Auth state | `authStore.isAuthenticated` + `api/client.js` interceptors |
 
 ---
 
@@ -286,9 +286,9 @@ All 46 lazy-loaded pages are fully implemented and wired to the live Django/DRF 
 
 ---
 
-## Feature Parity Closure vs Vanilla JS Prototype
+## Feature Parity Closure
 
-The previously tracked UI parity gaps from `hanmak_demo_mock_directory/` have been ported to the React frontend. Keep this table as a verification map during mock-removal QA.
+The previously tracked UI parity gaps have been ported to the React frontend. Keep this table as a verification map during MVP QA.
 
 | Section | Previously Tracked Gap | Status |
 |---|---|---|
@@ -319,7 +319,7 @@ The previously tracked UI parity gaps from `hanmak_demo_mock_directory/` have be
 | **Public Signing** | Delegate signer flow | Implemented |
 | **Envelope Detail** | Recipient delegation flow | Implemented |
 
-See `docs/MVP_READINESS_CHECKLIST.md` for the final automated and manual gates before removing the vanilla JS mock.
+See `docs/MVP_READINESS_CHECKLIST.md` for the final automated and manual gates before MVP release.
 
 ---
 

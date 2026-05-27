@@ -1,6 +1,6 @@
 # HanMak Backend
 
-Django + Django REST framework backend for the HanMak document-signing mock-up.
+Django + Django REST framework backend for the HanMak document-signing platform.
 
 ## Run Locally
 
@@ -26,7 +26,7 @@ Beta Ventures
 Gamma Holdings
 ```
 
-Use the sidebar organization switcher in the mock UI to change the active company. The frontend stores the selected organization in `HANMAK_ORGANIZATION_ID` and sends it to the API as `X-HanMak-Organization`.
+Use the sidebar organization switcher in the React app to change the active company. The frontend stores the selected organization in `HANMAK_ORGANIZATION_ID` and sends it to the API as `X-HanMak-Organization`.
 
 Built-in membership roles are `super_admin`, `admin`, `manager`, `signer`, and `viewer`. `seed_demo` creates `admin / admin123` as a Django superuser with a `super_admin` membership and seeds all five system role records for each demo organization. To create only one root operator account, run:
 
@@ -34,14 +34,12 @@ Built-in membership roles are `super_admin`, `admin`, `manager`, `signer`, and `
 python manage.py seed_super_admin --username superadmin --email superadmin@example.com --password superadmin123
 ```
 
-## Mock UI
+## React Frontend
 
-Open `hanmak_demo_mock_directory/index.html` in a browser. The mock now includes a small API client that can connect to the local backend, load live dashboard/inbox/envelope data, and exercise send/reminder actions.
-
-When using Docker, open the mock through Nginx so the frontend and API share one origin:
+When using Docker, open the React frontend through Nginx so the frontend and API share one origin:
 
 ```text
-http://127.0.0.1:8080/mock/
+http://127.0.0.1:8080/
 ```
 
 By default it uses:
@@ -57,10 +55,10 @@ localStorage.setItem('HANMAK_API_BASE_URL', 'http://127.0.0.1:8080/api/v1')
 location.reload()
 ```
 
-To test a public signer link in the mock:
+To test a public signer link in the React app:
 
 ```text
-hanmak_demo_mock_directory/index.html?token=<signing-session-token>
+http://127.0.0.1:8080/sign/<signing-session-token>
 ```
 
 ## Useful URLs
@@ -262,7 +260,7 @@ Recommended click-through order:
   THROTTLE_PASSWORD_RESET=5/min
   ```
 
-See `PLAN_ALIGNMENT.md` and `MOCK_ALIGNMENT.md` for what is implemented versus what remains placeholder/future work.
+See `PLAN_ALIGNMENT.md` for implementation history and remaining future work.
 
 ## Application Guides
 
@@ -271,12 +269,9 @@ Additional documentation lives in:
 ```text
 ../docs/USER_GUIDE.md
 ../docs/DEVELOPER_GUIDE.md
-../docs/BETA_FRONTEND_READINESS.md
 ../Project_Overview.md
 ```
 
 The user guide explains the HanMak product workflow, Release Control, signing, templates, envelopes, admin, compliance, and billing surfaces.
 
 The developer guide explains the frontend/backend architecture, API patterns, feature gating, release-control workflow, testing, and how to add new features.
-
-The beta frontend readiness guide explains the current beta shell configuration, disabled demo behavior, remaining development surfaces, and the recommended frontend migration path.

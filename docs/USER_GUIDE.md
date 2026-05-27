@@ -1,13 +1,13 @@
 # HanMak User Guide
 
-This guide explains how to use the HanMak mock/live application as an operator, administrator, signer, or reviewer.
+This guide explains how to use HanMak as an operator, administrator, signer, or reviewer.
 
 ## 1. Accessing HanMak
 
 In Docker development, open:
 
 ```text
-http://127.0.0.1:8080/mock/
+http://127.0.0.1:8080/
 ```
 
 Demo credentials:
@@ -16,7 +16,7 @@ Demo credentials:
 admin / admin123
 ```
 
-The mock frontend connects to:
+The React frontend connects to:
 
 ```text
 http://127.0.0.1:8080/api/v1
@@ -429,10 +429,10 @@ Use this process before releasing a feature:
 
 ## 16. MVP QA Checkpoint
 
-The backend test checkpoint is currently green: the tenant API suite passes with `91 tests OK`. Before calling a feature MVP-ready, run the Docker click-through QA from the browser at:
+The backend test checkpoint is currently green. Before calling a feature MVP-ready, run the Docker click-through QA from the browser at:
 
 ```text
-http://127.0.0.1:8080/mock/
+http://127.0.0.1:8080/
 ```
 
 Click every visible action in each module and classify it:

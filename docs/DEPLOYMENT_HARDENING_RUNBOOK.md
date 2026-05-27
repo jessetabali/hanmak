@@ -106,5 +106,5 @@ SESSION_COOKIE_SAMESITE=Lax      (default: Lax)
 - Run backend tenant/API tests: `python manage.py test accounts.tests.TenantScopedAPITests`.
 - Run security hardening tests: `python manage.py test accounts.tests_security`.
 - Verify throttle responses include a `Retry-After` header on `429` responses.
-- Run Docker click-through QA through `http://127.0.0.1:8080/mock/`.
+- Run Docker click-through QA through `http://127.0.0.1:8080/`.
 - Fix or document every visible action that errors, does nothing, or shows stale static data.

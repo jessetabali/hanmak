@@ -1065,7 +1065,7 @@ That is the **entire file footprint**. The template setup (Phase 3), envelope cr
 | `docs/REACT_FRONTEND_ARCHITECTURE.md` | React component tree, routing, data-fetching conventions, bundle splitting |
 | `docs/FRONTEND_BACKEND_HOOKUP_AUDIT.md` | Per-endpoint wiring audit and change log |
 | `docs/DEPLOYMENT_HARDENING_RUNBOOK.md` | Security headers, rate limits, production env vars |
-| `docs/MVP_READINESS_CHECKLIST.md` | Gates required before removing the vanilla JS prototype |
+| `docs/MVP_READINESS_CHECKLIST.md` | Gates required for MVP release sign-off |
 
 ---
 

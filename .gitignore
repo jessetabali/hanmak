@@ -21,6 +21,7 @@ ENV/
 /backend/media/
 /backend/staticfiles/
 /backend/static/
+/backend/celerybeat-schedule
 local_settings.py
 
 # Environment / secrets
